@@ -1,0 +1,345 @@
+---
+title: "Experiment 2 - Rosenbaum, Grassie & Hartley"
+author: "Gail Rosenbaum"
+date: "11/27/2020"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
+    toc_float: true
+    df_print: kable
+---
+
+<style type="text/css">
+
+h1.title {
+ font-size: 38px;
+}
+h1 { /* Header 1 */
+ font-size: 28px;
+}
+h2 { /* Header 2 */
+   font-size: 22px;
+}
+h3 { /* Header 3 */
+ font-size: 18px;
+}
+
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+## Load Libraries
+```{r libraries, include=FALSE}
+
+library(knitr)
+library(tidyverse)
+library(pander)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+library(dplyr)
+library(car)
+library(gridExtra)
+library(reshape2)
+library(ggpubr)
+library(cowplot)
+library(ggeffects)
+library(ggthemes)
+library(RColorBrewer)
+library(here)
+library(GGally)
+library(emmeans)
+library(sjmisc)
+library(sjstats)
+library(r2glmm)
+library(effectsize)
+library(grid)
+library(ggforce)
+library(broom)
+
+```
+
+Note: Experiment 2 data were originally published in the following paper:
+Rouhani, N., Norman, K. A., & Niv, Y. (2018). Dissociable effects of surprising rewards on learning and memory. Journal of Experimental Psychology: Learning, Memory, and Cognition, 44(9), 1430–1443. https://doi.org/10.1037/xlm0000518
+
+
+## load data
+```{r loadData, include=FALSE}
+
+# load memory data - Regression version (based on Jian's script)
+MemDF_Full <- read_csv(here("data_Exp2", "memory_allExps"))
+FA_Full <- read_csv(here("data_Exp2", "indDiff_allExps"))
+
+AIDF_Full <- read_csv(here("data_Exp2", "BestFitModelParameters11272020.csv"))
+
+# Load trial-by-trial RPE estimates from the models
+RPEDF_Full <- read_csv(here("data_Exp2", "TrialByTrialRPEs_11272020.csv"))
+
+
+```
+
+## Set theme for sjPlot
+```{r setSJPlotTheme, include=FALSE}
+# set_theme(
+#   base = theme_bw(), 
+#   theme.font = "sans",
+#   panel.backcol = "white",
+#   panel.gridcol = "white",
+#   panel.col = "white",
+#   panel.bordercol = "black",
+#   plot.backcol = "white",
+#   legend.backgroundcol = "white",
+#   legend.item.backcol = "white",
+#   legend.item.size = 1
+# )
+
+set_theme(
+  base = theme_bw(), 
+  theme.font = "sans",
+  panel.major.gridcol = "white",
+  panel.minor.gridcol = "white", 
+  legend.backgroundcol = "white",
+  legend.item.backcol = "white",
+  legend.item.size = 1
+)
+
+```
+
+
+# Compute new variables and merge
+```{r computeMerge, include=FALSE}
+
+FA_Full$FAScale <- scale(FA_Full$FARate)
+
+MemDF2_Full <- merge(RPEDF_Full, MemDF_Full, by.x = c("subj","trialExp"),by.y = c("subj","trialLearnExp"))
+
+MemDF2_Full <- merge(MemDF2_Full, FA_Full, by = "subj")
+
+MemDF2_Full$PositiveRPE <- factor(MemDF2_Full$PositiveRPE)
+
+MemDF2_Full$AIScale <- scale(MemDF2_Full$AsymmIdx)
+
+MemDF2_Full$TrialScale <- scale(MemDF2_Full$trialMemory)
+
+MemDF2_Full$AbsRPEScale <- scale(MemDF2_Full$AbsRPE)
+
+MemDF2_Full$PositiveRPEC <- ifelse(MemDF2_Full$PositiveRPE == 1, 1, ifelse(MemDF2_Full$PositiveRPE == 0, -1, NA))
+
+AIDF_Full <- merge(AIDF_Full, FA_Full[,c("subj","exp")],by = "subj")
+
+```
+
+# Correlations between subject and model estimates
+```{r Correlations}
+
+#for each subject, find the correlation between the modeled image estimates and the subjects' actual estimates
+corrsFull <- RPEDF_Full %>%
+    group_by(subj) %>%
+    summarise(correlationFull =  cor(estimate, modval))
+
+#merge correlation variables with other datasets
+corrsFull <- merge(corrsFull, FA_Full[,c("subj","exp")], by = "subj")
+corrsFull <- merge(corrsFull, AIDF_Full, by = c("subj","exp"))
+
+#mean/SD of correlation with all participants in the sample
+mean(corrsFull$correlationFull)
+sd(corrsFull$correlationFull)
+
+```
+
+# Compute asymmetry index 
+```{r AI}
+
+#compute AI
+AIDF_Full$AI <- (AIDF_Full$alphapos - AIDF_Full$alphaneg)/(AIDF_Full$alphapos + AIDF_Full$alphaneg) 
+
+#summary stats
+mean(AIDF_Full$AI)
+sd(AIDF_Full$AI)
+
+
+```
+
+# glmer
+```{r glmerModelEstimates}
+
+#the model that converges
+lmAIRPEMax <- glmer(hit ~ AIScale*AbsRPEScale*PositiveRPEC+TrialScale+FAScale+ (1+AbsRPEScale +TrialScale || subj), family=binomial, data=MemDF2_Full,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+#Plot odds ratios
+plotlabelsall <- c("Asymmetry Index (AI)", 
+                   "PE Valence",
+                   "PE Magnitude",
+                   "Memory Trial Number",
+                   "False Alarm Rate", 
+                   "AI:PE Magnitude",
+                   "AI:PE Valence",
+                   "PE Magnitude:PE Valence",
+                   "AI:PE Magnitude:PE Valence")
+names(plotlabelsall) <- c("AIScale",
+                        "PositiveRPEC",
+                        "AbsRPEScale",
+                        "TrialScale",
+                        "FAScale",
+                        "AIScale:PositiveRPEC",
+                        "AIScale:AbsRPEScale",
+                        "PositiveRPEC:AbsRPEScale",
+                        "AIScale:PositiveRPEC:AbsRPEScale")
+threewayintxplotall <- plot_model(lmAIRPEMax, colors = "bw", show.values = TRUE, 
+                                    value.offset = .4,  order.terms=c(4,5,1,2,3,6,7,8,9),
+                                    axis.labels = plotlabelsall, title = "Fixed Effects", 
+                                    vline.color = "grey")
+threewayintxplotall + ylab("Odds of Correct Memory Response")+ theme(
+        text=element_text(family="sans",size=12))  + scale_y_log10(limits = c(.5,2))
+
+#table (for some reason using tab_model works in this script but not in the Exp1 script; In that script I have to use the glmerReport function I made)
+tab_model(lmAIRPEMax, show.stat = TRUE, 
+                           show.df = TRUE, string.stat = "z",
+                           col.order = c("stat","p","est", "ci"))
+
+#make a factor instead of contrast for easier interaction plotting
+MemDF2_Full$PositiveRPEFact <- factor(MemDF2_Full$PositiveRPE, levels = c(0,1), labels = c("Negative Prediction Error","Positive Prediction Error"))
+
+#model with unscaled variables for intx plot
+lmAIRPEMaxPlot <- glmer(hit ~ AsymmIdx*PositiveRPEFact*AbsRPE+TrialScale+ FAScale+ (1+AbsRPE+TrialScale || subj), family=binomial, data=MemDF2_Full,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+AIRPEFig <- plot_model(lmAIRPEMaxPlot,
+           type = "pred", 
+           terms = c("AbsRPE [all]", "AsymmIdx [-.8,0,.8]", "PositiveRPEFact"),
+           colors = c("#bdd7e7","#6baed6","#2171b5")) +
+    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), labels = c("40%","50%","60%","70%","80%","90%"))
+AIRPEFig <- AIRPEFig + theme(
+        text=element_text(family="sans",size=12),
+        strip.background =element_rect(fill="white"),
+        panel.spacing = unit(1, "lines"))
+        
+AIRPEFig <- AIRPEFig + labs(title="Predicted Memory Accuracy by Choice Context",
+        x="Absolute Value of Prediction Error",
+        y= "Estimated Marginal Means for \n% Correct Memory Responses",
+        linetype="Asymmetry\nIndex",
+        color = "Asymmetry\nIndex")
+AIRPEFig
+
+#2-way interaction plot (the significant effect in this model)
+plot_model(lmAIRPEMaxPlot,type = "pred",
+           terms = c("PositiveRPEFact", "AsymmIdx [-.8,0,.8]"), 
+           colors = c("#bdd7e7","#6baed6","#2171b5"))+ 
+    labs(title="Predicted Memory Accuracy by Choice Context",
+        x="Absolute Value of Prediction Error",
+        y= "Estimated Marginal Means for \n% Correct Memory Responses",
+        linetype="Asymmetry\nIndex",
+        color = "Asymmetry\nIndex")
+
+```
+
+
+# Good fit 
+## subset all the dataframes to include only good fits
+```{r subsetGoodFits}
+
+#find the subs who have a correlation greater than 0 in all models, and with nloglik less than 0
+corrsFull$GoodFit <- ifelse(corrsFull$correlationFull>0 & corrsFull$nloglik<0, TRUE,FALSE)
+
+corrsFull_GF <- subset(corrsFull, corrsFull$GoodFit ==TRUE)
+
+#mean/SD of correlation with all participants in the sample
+mean(corrsFull_GF$correlationFull)
+sd(corrsFull_GF$correlationFull)
+
+#get list of subs with a good fit
+GoodFit <- subset(corrsFull$subj, corrsFull$GoodFit == TRUE)
+
+#subset AI dataset
+AIDF_Full_GF <- subset(AIDF_Full, AIDF_Full$subj %in% GoodFit)
+
+#subset Mem dataset
+MemDF2_Full_GF <- subset(MemDF2_Full, MemDF2_Full$subj %in% GoodFit)
+
+#rescaling variables because we removed some subs
+MemDF2_Full_GF$AIScale <- scale(MemDF2_Full_GF$AsymmIdx)
+
+MemDF2_Full_GF$TrialScale <- scale(MemDF2_Full_GF$trialMemory)
+
+MemDF2_Full_GF$AbsRPEScale <- scale(MemDF2_Full_GF$AbsRPE)
+
+MemDF2_Full_GF$FAScale <- scale(MemDF2_Full_GF$FARate)
+
+```
+
+## parameter distributions
+```{r goodFitparams}
+
+#plot parameter distributions
+
+ggplot(AIDF_Full_GF, aes(x=alphapos)) + geom_histogram(fill = c("#6baed6"))+  xlab(expression(paste(alpha,"+")))
+
+ggplot(AIDF_Full_GF, aes(x=alphaneg)) + geom_histogram(fill = c("#6baed6")) +  xlab(expression(paste(alpha,"-")))
+
+ggplot(AIDF_Full_GF, aes(x=AI)) + geom_histogram(fill = c("#6baed6")) +xlab("Asymmetry Index (AI)")
+
+mean(AIDF_Full_GF$AI)
+sd(AIDF_Full_GF$AI)
+
+```
+
+
+## glmer
+```{r glmerModelEstimatesgforig}
+
+#run glmer model with good fit subjects
+
+lmAIRPEMaxGF <- glmer(hit ~ AIScale*AbsRPEScale*PositiveRPEC+TrialScale+FAScale+ (1+AbsRPEScale +PositiveRPEC+TrialScale || subj), family=binomial, data=MemDF2_Full_GF,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+tab_model(lmAIRPEMaxGF, show.stat = TRUE, 
+                           show.df = TRUE, string.stat = "z",
+                           col.order = c("stat","p","est", "ci")) 
+
+
+#Plot odds ratios
+plotlabels <- c("Asymmetry Index (AI)", "PE Magnitude","PE Valence","Memory Trial Number","False Alarm Rate", "AI:PE Magnitude","AI:PE Valence","PE Magnitude:PE Valence","AI:PEMagnitude:PEValence")
+names(plotlabels) <- c("AIScale", "AbsRPEScale","PositiveRPEC","TrialScale","FAScale","AIScale:AbsRPEScale","AIScale:PositiveRPEC","AbsRPEScale:PositiveRPEC","AIScale:AbsRPEScale:PositiveRPEC")
+threewayintxplotPaper <- plot_model(lmAIRPEMaxGF, colors = "bw", show.values = TRUE, 
+                                    value.offset = .4,  order.terms=c(4,5,1,2,3,6,7,8,9),
+                                    title = "Fixed Effects",axis.labels = plotlabels, 
+                                    vline.color = "grey")
+threewayintxplotPaper + ylab("Odds of Correct Memory Response")+ theme(
+        text=element_text(family="sans",size=12))  + scale_y_log10(limits = c(.5,2))
+#saved manually - 600x400 pixels
+
+#running a new model with non-centered variables to easily plot the 3-way intx
+
+MemDF2_Full_GF$PositiveRPEFact <- factor(MemDF2_Full_GF$PositiveRPE, levels = c(0,1), labels = c("Negative Prediction Error","Positive Prediction Error"))
+
+
+#run model 
+
+lmAIRPEMaxGFPlot <- glmer(hit ~ AsymmIdx*AbsRPE*PositiveRPEFact+TrialScale+FARate+ (1+AbsRPEScale +PositiveRPEC+TrialScale || subj), family=binomial, data=MemDF2_Full_GF,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+#make 3-way interaction plot
+AIRPEFig <- plot_model(lmAIRPEMaxGFPlot,
+           type = "pred", 
+           terms = c("AbsRPE [all]", "AsymmIdx [-.8,0,.8]", "PositiveRPEFact"),
+           colors = c("#bdd7e7","#6baed6","#2171b5")) +
+    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), labels = c("40%","50%","60%","70%","80%","90%"))
+AIRPEFig <- AIRPEFig + theme(
+        text=element_text(family="sans",size=12),
+        strip.background =element_rect(fill="white"),
+        panel.spacing = unit(1, "lines"))
+        
+AIRPEFig <- AIRPEFig + labs(title="Predicted Memory Accuracy by Choice Context",
+        x="Absolute Value of Prediction Error",
+        y= "Estimated Marginal Means for \n% Correct Memory Responses",
+        linetype="Asymmetry\nIndex",
+        color = "Asymmetry\nIndex")
+AIRPEFig
+
+
+```
+
+
+
+

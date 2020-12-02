@@ -1,0 +1,45 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2513
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww16600\viewh7440\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 Note: Experiment 2 data were originally published in the following paper:\
+Rouhani, N., Norman, K. A., & Niv, Y. (2018). Dissociable effects of surprising rewards on learning and memory. Journal of Experimental Psychology: Learning, Memory, and Cognition, 44(9), 1430\'961443. https://doi.org/10.1037/xlm0000518\
+\
+\
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+\cf0 # learningTrials\
+\
+subj: subjectID\
+trialExp: trial # across two blocks (or rooms) \
+trialRoom: trial # within block (or room) \
+rt: reaction time to submit estimate \
+signedPE: reward - value estimate \
+reward: outcome \
+condition: \'93hrfirst\'94 - high risk room first, \'93lrfirst\'94 - low risk room first \
+imageShown: image at cue (and outcome)\
+estimate: participant value estimate\
+absPE: absolute(signedPE)\
+risk: risk of room \
+signedErr: error from the true average of the deck \
+absErr: absolute(signedErr)\
+learningRate: trial-by-trial learning rate from reward and participant value estimate\
+lrcat: binning value for plotting \
+deck: average value of deck on screen\
+exp: experiment number \
+\
+# memoryTrials (all old items, other variables are the same as learning list)\
+\
+trialMemory: trial during memory testing\
+hit: successful memory hit\
+trialLearnExp: trial during learning across two blocks (or rooms)\
+room: # of room \
+\
+# indDiff (individual differences) \
+\
+FARate: false alarm rate \
+HitRate: hit rate \
+aprimescore: signal detection sensitivity score (takes false alarm rate and hit rate)\
+}
