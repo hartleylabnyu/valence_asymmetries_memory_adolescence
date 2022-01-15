@@ -1,13 +1,13 @@
 ---
-title: "Experiment 1 - Rosenbaum, Grassie & Hartley"
+title: "Experiment 1 - Rosenbaum, Grassie & Hartley, 2022"
 author: "Gail Rosenbaum"
-date: "11/25/2020"
+date: "1/15/2022"
 output:
-  html_document:
-    toc: true
-    toc_depth: 4
-    toc_float: true
-    df_print: kable
+    html_document:
+        toc: yes
+        toc_depth: 4
+        toc_float: TRUE
+        df_print: "paged"
 ---
 
 <style type="text/css">
@@ -27,9 +27,24 @@ h3 { /* Header 3 */
 
 </style>
 
+This script contains code to reproduce statistical analyses and figures for Experiment 1 in the following manuscript: 
+
+Rosenbaum, G.M., Grassie, H.L., & Hartley, C.A. (2022). Valence asymmetries in learning account for age differences in risky choice and predict individual differences in subsequent memory. eLife. https://doi.org/10.7554/eLife.64620
+
+# Notes
+- Throughout this script, RPE refers to Reward Prediction Error. In the manuscript we use the term Prediction Error (PE) instead
+- The Risk-Sensitive Temporal Difference (RSTD) model is sometimes referred to as “TDRS” in variable names
+- These files include AIC as model-fit metrics. We ultimately reported BIC instead of AIC in the manuscript. This file computes BIC based on AIC values
+- In testing for age patterns in continuous variables, we used the anova function to arbitrate between regression models with linear and quadratic age terms. If the quadratic pattern was significant, we reported the quadratic age pattern; otherwise, we reported the linear age pattern.
+
+
+
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache = TRUE, results = "asis")
+knitr::opts_chunk$set(echo = FALSE, cache = FALSE, 
+                      message = FALSE, results = "asis", 
+                      warning = FALSE, include = TRUE)
 ```
+
 
 # Setup
 ## Load Libraries
@@ -38,7 +53,6 @@ knitr::opts_chunk$set(echo = TRUE, cache = TRUE, results = "asis")
 source("twolines/twolines.R")  
 
 #this "two lines" approach was introduced by Simonsohn (2017), and helps us better understand quadratic patterns. Simonsohn argues that a quadratic pattern can have many shapes but to argue that something is u-shaped, we should be able to fit two regression lines to the data with a breakpoint between the two, and the two lines should have significant opposite-signed slopes
-
 
 library(knitr)
 library(tidyverse)
@@ -51,10 +65,7 @@ library(car)
 library(gridExtra)
 library(reshape2)
 library(ggpubr)
-library(cowplot)
 library(ggeffects)
-library(ggthemes)
-library(RColorBrewer)
 library(here)
 library(GGally)
 library(emmeans)
@@ -62,6 +73,12 @@ library(sjmisc)
 library(sjstats)
 library(r2glmm)
 library(effectsize)
+library(plotrix)
+library(gtable)
+library(psych)
+library(np)
+library(ordinal)
+library(formattable)
 library(grid)
 
 ```
@@ -76,8 +93,13 @@ widedf <- read_csv("data_Exp1/widedf.csv")
 #setting mean and sd age to use below because this isn't affected by other variables like number of trials, etc.
 meanage <- mean(widedf$Age)
 sdage <- sd(widedf$Age)
-#mean center age, compute age squared
+#z-score age
 widedf$Age_Z <-(widedf$Age-meanage)/sdage
+
+#model parameters
+newModParams <- read_csv("data_Exp1/BestFitParams.csv")
+newModParams$Age_Z <-(newModParams$Age-meanage)/sdage
+
 
 ```
 
@@ -95,7 +117,8 @@ MemDF$Age_Z <-(MemDF$Age-meanage)/sdage
 MemDF$Forced <- factor(ifelse(MemDF$TrialType == 2, 1, 0))
 
 #dummy coding for equalEV risks
-MemDF$EqEVRiskTrial <- factor(ifelse(MemDF$FullTrialType==1 | MemDF$FullTrialType==3, 1, 0))
+MemDF$EqEVRiskTrial <- factor(ifelse(MemDF$FullTrialType==1 | 
+                                         MemDF$FullTrialType==3, 1, 0))
 
 #dummy coding for unequalEV risks
 MemDF$UnEqEVRiskTrial <- factor(ifelse(MemDF$FullTrialType == 2, 1, 0))
@@ -104,10 +127,20 @@ MemDF$UnEqEVRiskTrial <- factor(ifelse(MemDF$FullTrialType == 2, 1, 0))
 MemDF$Test <- factor(ifelse(MemDF$TrialType == 3, 1, 0))
 
 #dummy coding for equal vs unequal EV risky trials
-MemDF$EqvsUnEqEVRiskTrial <- ifelse(MemDF$FullTrialType==1, 1, ifelse(MemDF$FullTrialType==3, 1, ifelse(MemDF$FullTrialType==2, 2, NaN)))
+MemDF$EqvsUnEqEVRiskTrial <- ifelse(MemDF$FullTrialType==1, 1, 
+                                    ifelse(MemDF$FullTrialType==3, 1,
+                                           ifelse(MemDF$FullTrialType==2, 
+                                                  2, NaN)))
 
 #dummy coding for equal vs unequal EV risky trials
-MemDF$TrialTypeContrast <- factor(ifelse(MemDF$FullTrialType==1, 1, ifelse(MemDF$FullTrialType==3, 1, ifelse(MemDF$FullTrialType==2, 2, ifelse(MemDF$TrialType==2, 3, ifelse(MemDF$TrialType==3, 4, NaN))))),levels = c("1","2","3","4"), labels = c("EqEVRisk", "UnEqEvRisk","Forced","Test"))
+MemDF$TrialTypeContrast <- factor(
+    ifelse(MemDF$FullTrialType==1, 1, 
+           ifelse(MemDF$FullTrialType==3, 1, 
+                  ifelse(MemDF$FullTrialType==2, 2, 
+                         ifelse(MemDF$TrialType==2, 3, 
+                                ifelse(MemDF$TrialType==3, 4, NaN))))),
+    levels = c("1","2","3","4"), 
+    labels = c("EqEVRisk", "UnEqEvRisk","Forced","Test"))
 
 #Get the EV difference between machines for each problem
 EVDiffTable <- read_csv(here("data_Exp1", "MachineEVs.csv"))
@@ -118,72 +151,152 @@ MemDF$EVDiffScale <-  scale(MemDF$EVDiff)
 rm(EVDiffTable)
 
 
-#Centering/scaling the memory trial index (when in the memory test a picture was presented)
+#Centering/scaling the memory trial index (when in the memory test a picture 
+#was presented)
 MemDF$MemIdxScaled <- scale(MemDF$MemIdx)
+
+#make PositiveRPE a factor
 MemDF$PositiveRPE <-factor(MemDF$PositiveRPE,
                          levels = c(0,1),
-                         labels = c("Negative Prediction Error","Positive Prediction Error"))
-
-#mean Center RPE
-MemDF$AbsRPE_MC <- MemDF$AbsRPE - mean(MemDF$AbsRPE)
+                         labels = c("Negative Prediction Error",
+                                    "Positive Prediction Error"))
 
 #compute AI
 MemDF$AsymmIdx <- (MemDF$AlphaPos-MemDF$AlphaNeg)/(MemDF$AlphaPos+MemDF$AlphaNeg)
-#mean center AI
-meanAI <- mean(widedf$TDRS_AsymmIdx)
-MemDF$AsymmIdx_MC <- MemDF$AsymmIdx-meanAI
 
-#mean Center Outcome
-MemDF$Outcome_MC <- MemDF$Outcome - mean(MemDF$Outcome)
-
-#Unscaled Trial - created this after already creating analyses below that call on trialnum
+#Unscaled Trial - created this after already creating analyses below that call 
+#on trialnum
 MemDF$TrialUnscaled <- MemDF$TrialNum
 
 #rescaling trial numbers
 MemDF$TrialNum <- scale(MemDF$TrialNum)
 
-#add gender
-MemDF <- merge(MemDF,widedf[,c("SubjectNumber","Gender")],by ="SubjectNumber")
-MemDF$Gender <- factor(MemDF$Gender, labels = c("F","M"))
+#make block variable with 3 blocks
+MemDF$Block <- ifelse(MemDF$TrialUnscaled<62, 1, 
+                      ifelse(MemDF$TrialUnscaled<123, 2, 3))
 
-#make block variable
-MemDF$Block <- ifelse(MemDF$TrialUnscaled<62, 1, ifelse(MemDF$TrialUnscaled<123, 2, 3))
+#make block variable with 6 blocks
+MemDF$Block2 <- ifelse(MemDF$TrialUnscaled<31, 1, 
+                       ifelse(MemDF$TrialUnscaled<62, 2, 
+                              ifelse(MemDF$TrialUnscaled<92, 3,
+                                     ifelse(MemDF$TrialUnscaled<123, 4,
+                                            ifelse(MemDF$TrialUnscaled<153, 
+                                                   5, 6)))))
+
 
 ```
+
+```{r loadmemdfutil_ns, include=FALSE}
+
+### Utility data
+
+MemDF_Util <- read_csv(here("data_Exp1", "MemDF_Util.csv"))
+
+#z-score age
+MemDF_Util$Age_Z <-(MemDF_Util$Age-meanage)/sdage
+
+#dummy coding for forced trials
+MemDF_Util$Forced <- factor(ifelse(MemDF_Util$TrialType == 2, 1, 0))
+
+#dummy coding for equalEV risks
+MemDF_Util$EqEVRiskTrial <- factor(
+    ifelse(MemDF_Util$FullTrialType==1 | 
+               MemDF_Util$FullTrialType==3, 1, 0))
+
+#dummy coding for unequalEV risks
+MemDF_Util$UnEqEVRiskTrial <- factor(
+    ifelse(MemDF_Util$FullTrialType == 2, 1, 0))
+
+#dummy coding for testTrials
+MemDF_Util$Test <- factor(ifelse(MemDF_Util$TrialType == 3, 1, 0))
+
+#dummy coding for equal vs unequal EV risky trials
+MemDF_Util$EqvsUnEqEVRiskTrial <- 
+    ifelse(MemDF_Util$FullTrialType==1, 1, 
+           ifelse(MemDF_Util$FullTrialType==3, 1, 
+                  ifelse(MemDF_Util$FullTrialType==2, 2, NaN)))
+
+#dummy coding for equal vs unequal EV risky trials
+MemDF_Util$TrialTypeContrast <- factor(
+    ifelse(MemDF_Util$FullTrialType==1, 1, 
+           ifelse(MemDF_Util$FullTrialType==3, 1, 
+                  ifelse(MemDF_Util$FullTrialType==2, 2, 
+                         ifelse(MemDF_Util$TrialType==2, 3, 
+                                ifelse(MemDF_Util$TrialType==3, 4, NaN))))),
+    levels = c("1","2","3","4"), 
+    labels = c("EqEVRisk", "UnEqEvRisk","Forced","Test"))
+
+
+#Get the EV difference between machines for each problem
+EVDiffTable <- read_csv(here("data_Exp1", "MachineEVs.csv"))
+
+MemDF_Util$EVDiff <- NA
+MemDF_Util$EVDiff <-  as.numeric(
+    unlist(EVDiffTable[MemDF_Util$FullTrialType,6]))
+MemDF_Util$EVDiffScale <-  scale(MemDF_Util$EVDiff)
+rm(EVDiffTable)
+
+
+#Centering/scaling the memory trial index (when in the memory test a picture was presented)
+MemDF_Util$MemIdxScaled <- scale(MemDF_Util$MemIdx)
+
+#make RositiveRPE a factor
+MemDF_Util$PositiveRPE <-factor(MemDF_Util$PositiveRPE,
+                                levels = c(0,1),
+                                labels = c("Negative Prediction Error",
+                                           "Positive Prediction Error"))
+
+
+#Unscaled Trial - created this after already creating analyses below that call on trialnum
+MemDF_Util$TrialUnscaled <- MemDF_Util$TrialNum
+
+#rescaling trial numbers
+MemDF_Util$TrialNum <- scale(MemDF_Util$TrialNum)
+
+#make block variable with 3 blocks
+MemDF_Util$Block <- ifelse(MemDF_Util$TrialUnscaled<62, 1, ifelse(MemDF_Util$TrialUnscaled<123, 2, 3))
+
+#make block variable with 6 blocks
+MemDF_Util$Block2 <- ifelse(
+    MemDF_Util$TrialUnscaled<31, 1, 
+    ifelse(MemDF_Util$TrialUnscaled<62, 2,
+           ifelse(MemDF_Util$TrialUnscaled<92, 3, 
+                  ifelse(MemDF_Util$TrialUnscaled<123, 4,
+                         ifelse(MemDF_Util$TrialUnscaled<153, 5, 6)))))
+
+
+```
+
 
 ### Posterior Predictive Check Data
 ```{r PPCData, include=FALSE}
 
-###Posterior predictive check data 
-PPC <- read_csv(here("data_Exp1","PPC.csv"))
-#Keeping this separate because the parameters have the same names as those in widedf but are based on simulations. don't want to deal with renaming all of them
+###Posterior predictive check data for RSTD
+PPC <- read_csv(here("data_Exp1","PPC_RSTD.csv"))
+#Keeping this separate because the parameters have the same names as those in 
+#widedf but are based on simulations. don't want to deal with renaming all of them
 PPC$Age_Z <- scale(PPC$Age)
+
+# PPC data for Utility
+PPC_Util <- read_csv(here("data_Exp1","PPC_Util.csv"))
+
+PPC_Util$Age_Z <- scale(PPC_Util$Age)
+
 
 ```
 
 ### Model Recovery Data
 ```{r RecoveryData, include=FALSE}
 
-TDRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_TD_11272020.csv'))
-TDRSRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_TDRS_11272020.csv'))
+TDRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_TD.csv'))
+TDRSRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_RSTD.csv'))
+UtilRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_Util.csv'))
+FourLRRecovDF <- read_csv(here("data_Exp1", 'ModelRecov_FourLR.csv'))
 
 ```
 
-
-## Set theme for sjPlot
 ```{r setSJPlotTheme, include=FALSE}
-# set_theme(
-#   base = theme_bw(), 
-#   theme.font = "sans",
-#   panel.backcol = "white",
-#   panel.gridcol = "white",
-#   panel.col = "white",
-#   panel.bordercol = "black",
-#   plot.backcol = "white",
-#   legend.backgroundcol = "white",
-#   legend.item.backcol = "white",
-#   legend.item.size = 1
-# )
+## Set theme for sjPlot; however, this for some reason isn't translating to the knitr document so I had to define my preferences in plots throughout the document as well
 
 set_theme(
   base = theme_bw(), 
@@ -197,10 +310,14 @@ set_theme(
 
 ```
 
-## Functions to report regression results
+
+## Functions 
 ```{r reportFuns, include=FALSE}
 
-#These functions output statistics, including effect sizes, for each type of statistical test I report for display in html report created using knitr.
+#reporting regression results
+
+#These functions output statistics, including effect sizes, for each type of 
+#statistical test I report for display in html report created using knitr.
 
 lmReport <- function(model) {
     cat(tab_model(model, show.stat = TRUE,
@@ -209,10 +326,10 @@ lmReport <- function(model) {
                                        "stat","df.error","p"))$knitr,"\n--------\n")
 
     ftab <- effectsize::cohens_f(model, ci = .95)
-    #square and round the parameter columns
-    ftab[,2] <- round(ftab[,2]^2,2)
-    ftab[,4] <- round(ftab[,4]^2,2)
-    ftab[,5] <- round(ftab[,5]^2,2)
+    #square and round2 the parameter columns
+    ftab[,2] <- round2(ftab[,2]^2,2)
+    ftab[,4] <- round2(ftab[,4]^2,2)
+    ftab[,5] <- round2(ftab[,5]^2,2)
     colnames(ftab) <- c("Parameter","Cohensf2Partial",
                         "f2_CI","f2_CI_low","f2_CI_high")
     return(ftab)
@@ -234,86 +351,233 @@ glmerReport <- function(model) {
 
 ```
 
+```{r customround, include=FALSE}
+## Custom round function
+# Function to always round 0.5 up
+round2 <- function(x, digits = 0) {  
+  posneg <- sign(x)
+  z <- abs(x) * 10^digits
+  z <- z + 0.5
+  z <- trunc(z)
+  z <- z / 10^digits
+  z * posneg
+}
+```
 
-# Demographics
-```{r demographics}
-
-#age
-meanage #already computed
-sdage #already computed
-
-#gender
-widedf %>% group_by(Gender) %>% tally()
+```{r BICFun, include=FALSE}
+## Function to compute BIC from AIC, nobs, nparams
+compBIC <- function(AIC,nobs,nparams) {
+    loglik <- (AIC - 2*nparams)/2
+    BIC <- (2*loglik) + (nparams*log(nobs))
+}
 
 ```
+
+# Demographics
+Age:
+Mean = `r round2(meanage,2)`,
+Standard deviation = `r round2(sdage,2)`
+
+Gender:
+N males = `r sum(widedf$Gender == "M")`,
+N females = `r sum(widedf$Gender == "F")`
 
 
 # WASI By Age
+### Linear age
 ```{r WASIByAge}
 #is there a relationship between age and WASI?
 WASIage <- lm(WASI~Age_Z, data = widedf)
-WASIagesq <- lm(WASI~Age_Z + I(Age_Z^2), data = widedf)
-
 lmReport(WASIage)
+
+```
+
+### Quadratic age
+```{r WASIagesq}
+
+WASIagesq <- lm(WASI~Age_Z + I(Age_Z^2), data = widedf)
 lmReport(WASIagesq)
 
-#no
 ```
+
+There is no relationship between WASI and linear or quadratic age
+
 
 # Number of Trials
 ```{r ntrials}
 
-#find the number of trials each participant completed by subtracting the number of trials each participant missed
+#find the number of trials each participant completed by subtracting the number 
+#of trials each participant missed
 
 numtrials <- MemDF %>% group_by(SubjectNumber) %>% tally()
-numtrials$missed <- 183 -numtrials$n
+numtrials$missed <- 183 - numtrials$n
 
-sum(numtrials$missed)
-max(numtrials$missed)
+
+#save the number of choices participants made (non-forced) to go into BIC calc
+numchoices <- MemDF %>% 
+    subset(Forced == 0 ) %>%
+    group_by(SubjectNumber) %>% 
+    tally()
 
 ```
+
+Total number of missed trials across all participants: `r sum(numtrials$missed)`
+
+Maximum number of missed trials for a single participant: `r max(numtrials$missed)`
+
+Total number of trials (including missed trials): `r format(nrow(MemDF) + sum(numtrials$missed), scientific=FALSE)`
 
 # Accuracy
 ## Test performance
 ```{r TestPerf}
 
-#make a variable defining the correct answer on test trials (2 is correct for FullTrialtype = 9, 11, 12, 13, 14, 15; 1 is correct for FullTrialType = 10) 
-MemDF$TestCorrect <- ifelse(MemDF$TrialType == 3 & !MemDF$FullTrialType == 10, 2,ifelse(MemDF$TrialType == 3 & MemDF$FullTrialType == 10, 1, NA))
+#make a variable defining the correct answer on test trials (2 is correct for 
+#FullTrialtype = 9, 11, 12, 13, 14, 15; 1 is correct for FullTrialType = 10) 
+MemDF$TestCorrect <- ifelse(MemDF$TrialType == 3 & 
+                                !MemDF$FullTrialType == 10, 2,
+                            ifelse(MemDF$TrialType == 3 & 
+                                       MemDF$FullTrialType == 10, 1, NA))
 
 #make accuracy variable (does the response equal the correct response?)
-MemDF$TestAccuracy <- ifelse(MemDF$UnshuffledResp == MemDF$TestCorrect & !is.na(MemDF$TestCorrect), 1, ifelse(MemDF$UnshuffledResp == 3-MemDF$TestCorrect & !is.na(MemDF$TestCorrect), 0, NA))
+MemDF$TestAccuracy <- ifelse(
+    MemDF$UnshuffledResp == MemDF$TestCorrect & 
+        !is.na(MemDF$TestCorrect), 1, 
+    ifelse(MemDF$UnshuffledResp == 3-MemDF$TestCorrect  & 
+               !is.na(MemDF$TestCorrect), 0, NA))
 
 #does test trial performance improve across the task and interact with age?
-lmAgeTrialintx <- glmer(TestAccuracy~TrialNum*Age_Z+(1+TrialNum|SubjectNumber), family=binomial, data=MemDF,control = glmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
+lmAgeTrialintx <- glmer(
+    TestAccuracy ~ TrialNum * Age_Z + (1 + TrialNum | SubjectNumber), 
+    family=binomial, data=MemDF,
+    control = glmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
 
 #quadratic age
-lmAgesqTrialintx <- glmer(TestAccuracy~TrialNum*I(Age_Z^2) +Age_Z+(1+TrialNum|SubjectNumber), family=binomial, data=MemDF,control = glmerControl(optimizer = "bobyqa"))
+lmAgesqTrialintx <- glmer(
+    TestAccuracy ~ TrialNum * I(Age_Z^2) + Age_Z + (1 + TrialNum | SubjectNumber), 
+    family=binomial, data=MemDF,
+    control = glmerControl(optimizer = "bobyqa"))
 
-#is quadratic better than linear?
-anova(lmAgeTrialintx,lmAgesqTrialintx)
-
-#quadratic not better, reporting linear
-glmerReport(lmAgeTrialintx)
-
-#block performance means
-#Block1
-pander(mean(widedf$MeanTestBlock1))
-#Block2
-pander(mean(widedf$MeanTestBlock2))
-#Block3
-pander(mean(widedf$MeanTestBlock3))
 
 ```
 
+Is quadratic better than linear?
+
+```{r agetriallinear}
+anova(lmAgeTrialintx,lmAgesqTrialintx)
+```
+
+Quadratic is not better, reporting linear results
+
+```{r agetrialquad}
+glmerReport(lmAgeTrialintx)
+```
+
+
+Mean test trial accuracy by block:
+
+Block 1 = `r round2(mean(widedf$MeanTestBlock1),2)`
+
+Block 2 = `r round2(mean(widedf$MeanTestBlock2),2)`
+
+Block 3 = `r round2(mean(widedf$MeanTestBlock3),2)`
+
+
+## Learning curves
+
+Appendix 1--figure 1
+
+```{r learningCurves}
+
+#Create age group
+MemDF$AgeGroup <- factor(
+    ifelse(MemDF$Age < 13, "Children", 
+           ifelse(MemDF$Age < 18, "Adolescents", "Adults")))
+
+#set the order of the factor levels
+MemDF$AgeGroup <- factor(MemDF$AgeGroup, 
+                         levels = c("Children","Adolescents","Adults"))
+
+#plot mean of test trial performance by age group
+learningmeans <- MemDF %>%
+  group_by(AgeGroup, Block2) %>%
+  summarize(meanacc=mean(na.omit(TestAccuracy)), seacc=std.error(na.omit(TestAccuracy)))
+
+#plot mean accuracy
+ggplot(data=learningmeans, aes(x = Block2, y = meanacc, 
+                               group = AgeGroup, color = AgeGroup)) + 
+    geom_line(size =.8) +
+    geom_errorbar(min = learningmeans$meanacc-learningmeans$seacc, 
+                  max = learningmeans$meanacc+learningmeans$seacc, width =.2) + 
+    scale_color_manual(values = c("#bdd7e7","#6baed6","#2171b5")) +
+    ylim(c(.5,1)) + 
+    scale_x_continuous(breaks = c(1,2,3,4,5,6)) +
+    labs(color = "Age Group", x = "Block", y = "Mean Accuracy") +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_blank())
+
+
+#plot means of risk taking by age group
+
+#equal expected value
+
+riskmeansEqEV <- MemDF %>%
+  subset(TrialTypeContrast == "EqEVRisk") %>%
+  group_by(AgeGroup, Block2) %>%
+  summarize(meanrisk=mean(na.omit(AnyRisk)), serisk=std.error(na.omit(AnyRisk)))
+
+ggplot(data=riskmeansEqEV, aes(x = Block2, y = meanrisk, 
+                               group = AgeGroup, color = AgeGroup)) + 
+    geom_line(size =.8) +
+    geom_errorbar(min = riskmeansEqEV$meanrisk-riskmeansEqEV$serisk, 
+                  max = riskmeansEqEV$meanrisk+riskmeansEqEV$serisk, width =.2)+ 
+    scale_color_manual(values = c("#bdd7e7","#6baed6","#2171b5")) +
+    scale_x_continuous(breaks = c(1,2,3,4,5,6)) +
+    ylim(0.2,0.8) +
+    labs(color = "Age Group", x = "Block", y = "Mean Risk Equal EV") +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+
+#unequal expected value
+riskmeansUnEqEV <- MemDF %>%
+  subset(TrialTypeContrast == "UnEqEvRisk") %>%
+  group_by(AgeGroup, Block2) %>%
+  summarize(meanrisk=mean(na.omit(AnyRisk)), serisk=std.error(na.omit(AnyRisk)))
+
+ggplot(data=riskmeansUnEqEV, aes(x = Block2, y = meanrisk, 
+                                 group = AgeGroup, color = AgeGroup)) + 
+    geom_line(size =.8) +
+    geom_errorbar(min = riskmeansUnEqEV$meanrisk-riskmeansUnEqEV$serisk, 
+                  max = riskmeansUnEqEV$meanrisk+riskmeansUnEqEV$serisk, 
+                  width =.2)+ 
+    scale_color_manual(values = c("#bdd7e7","#6baed6","#2171b5")) +
+    scale_x_continuous(breaks = c(1,2,3,4,5,6)) +
+    ylim(0.2,0.8) +
+    labs(color = "Age Group", x = "Block", y = "Mean Risk Unequal EV") +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+```
+
+
 ## Explicit Learning
+
+#### Question 1: Did this machine always give you the same number of points, or did it sometimes give 0 points and sometimes give you more points?
+
+Mean accuracy = `r round2(mean(widedf$RiskySafeAcc),2)`
+
+Accuracy and age:
+
 ```{r expLearn}
-#accuracy for responses to explicit learning questions
-
-#Question: Did this machine always give you the same number of points, or did it sometimes give 0 points and sometimes give you more points?
-
-#get the mean 
-mean(widedf$RiskySafeAcc)
-
 #did responses vary by age?
 agePredRSAcc <- lm(RiskySafeAcc ~ Age_Z, data = widedf)
 
@@ -321,76 +585,122 @@ agePredRSAcc <- lm(RiskySafeAcc ~ Age_Z, data = widedf)
 agesqPredRSAcc <- lm(RiskySafeAcc ~ Age_Z + I(Age_Z^2), data = widedf)
 
 anova(agePredRSAcc,agesqPredRSAcc)
-#quadratic not better, reporting linear
 
+```
+
+Linear age pattern because quadratic isn't significant:
+
+```{r expLearn2}
 lmReport(agePredRSAcc)
+```
 
-#Question: How many points did this machine give you each time you chose it? (if sub responded that it was safe) OR How many points did this machine give you when it did not give 0 points?
+#### Question 2: How many points did this machine give you each time you chose it? (if the participant responded that it was safe in Question 1) OR How many points did this machine give you when it did not give 0 points?
 
-#get the mean 
-mean(widedf$ValueAcc)
 
-#does this vary by age?
+Mean accuracy = `r round2(mean(widedf$ValueAcc),2)`
+
+Accuracy and age:
+
+```{r expLearn3}
+
+#do question 2 responses vary by linear age?
 agePredValAcc <- lm(ValueAcc ~ Age_Z, data = widedf)
 
 #quadratic age
 agesqPredValAcc <- lm(ValueAcc ~ Age_Z + I(Age_Z^2), data = widedf)
 
 anova(agePredValAcc,agesqPredValAcc)
-#quadratic not better
-
-lmReport(agePredValAcc)
 
 ```
 
+Linear age pattern because quadratic isn't significant:
+
+```{r expLearn4}
+lmReport(agePredValAcc)
+```
+
+
+
 # RT
-## RT by age
-```{r RT}
+## RT cleanup
+```{r cleanrt}
 #Remove RTs < 200 ms
 MemDF$RT200 <- ifelse(MemDF$RT>.2, MemDF$RT, NA)
 
 #how many short RTs were removed?
 MemDF$RTshort <- ifelse(MemDF$RT>.2,0, 1)
-sum(MemDF$RTshort)
 
-temp <- MemDF[,c("SubjectNumber","RTshort")] %>% group_by(SubjectNumber) %>% summarize(shortTrials = sum(RTshort)) 
 
-#what's the max number of RTs removed for a participant?
-max(temp$shortTrials)
+numRTs <- MemDF[,c("SubjectNumber","RTshort")] %>% 
+    group_by(SubjectNumber) %>% 
+    summarize(shortTrials = sum(RTshort)) 
+
+```
+
+Total number of RTs removed across all participants:
+`r sum(MemDF$RTshort)`
+
+Maximum number for a given participant:
+`r max(numRTs$shortTrials)`
+
+Total number of trials with responses (excluding trials with no response):
+`r nrow(MemDF)`
+
+
+## RT by age
+```{r RTage}
 
 #log-transform RTs
 MemDF$LogRT <- log(MemDF$RT200)
 
 #trial by age interaction
-lmerLogRTAgextrial <- lmer(LogRT ~ TrialNum * Age_Z + (1+TrialNum|SubjectNumber), data = MemDF, control = lmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
+lmerLogRTAgextrial <- lmer(
+    LogRT ~ TrialNum * Age_Z + (1 + TrialNum | SubjectNumber), 
+    data = MemDF, 
+    control = lmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
 
 #trial by age squared
-lmerLogRTAgesqxtrial <- lmer(LogRT ~ TrialNum * I(Age_Z^2) +Age_Z + (1+TrialNum|SubjectNumber), data = MemDF, control = lmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
+lmerLogRTAgesqxtrial <- lmer(
+    LogRT ~ TrialNum * I(Age_Z^2) + Age_Z + (1 + TrialNum | SubjectNumber), 
+    data = MemDF, 
+    control = lmerControl(optimizer = "bobyqa", optCtrl=list(maxfun=1e6)))
 
 anova(lmerLogRTAgextrial,lmerLogRTAgesqxtrial)
-#age squared not better
-
-lmerReport(lmerLogRTAgextrial)
 
 ```
+
+Linear age pattern because quadratic isn't significant:
+
+```{r RT2}
+lmerReport(lmerLogRTAgextrial)
+```
+
 
 
 # Risk Taking
 ## Risk descriptive statistics
-```{r RiskStatsOverall}
-#equal expected value trials
-mean(widedf$MeanRiskOverallEqEV)
-sd(widedf$MeanRiskOverallEqEV)
 
-#was risk taking higher or lower than .5
+### Equal expected value risk trials
+
+Mean risk taking = `r round2(mean(widedf$MeanRiskOverallEqEV),2)`
+
+SD risk taking = `r round2(sd(widedf$MeanRiskOverallEqEV),2)`
+
+
+Was risk taking significantly different than .5 (risk-neutral)?
+
+```{r RiskStatsOverall}
+
 riskt <- t.test(widedf$MeanRiskOverallEqEV, mu = .5)
 pander(riskt)
-rstatix::cohens_d(data = widedf, MeanRiskOverallEqEV ~ 1, mu = .5, ci = TRUE, conf.level = .95)
+rstatix::cohens_d(data = widedf, 
+                  MeanRiskOverallEqEV ~ 1, mu = .5, ci = TRUE, conf.level = .95)
 
 ```
 
+Yes, risk taking was significantly lower than .5
 
-## Risk taking by age regressions - equal ev
+#### Risk taking by age regressions
 ```{r lmRiskAgeeqev}
 #linear age
 lmriskageEq <- lm(MeanRiskOverallEqEV~Age_Z, data = widedf)
@@ -400,25 +710,40 @@ lmriskagesqEq <- lm(MeanRiskOverallEqEV~Age_Z+I(Age_Z^2), data = widedf)
 
 anova(lmriskageEq,lmriskagesqEq)
 
-#significantly better
+```
+
+Reporting quadratic because it's significantly better
+
+```{r lmRiskAgeeqevreport}
 
 lmReport(lmriskagesqEq)
 
-
 lmriskByAgeEq <- twolines(MeanRiskOverallEqEV ~ Age,data=widedf)
+
+```
+
+Figure 2
+
+```{r fig2}
 
 ggplot(data=widedf, aes(x=Age, y=MeanRiskOverallEqEV)) + 
     geom_point() +
     stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
-    scale_y_continuous(breaks=c(0,.25,.5,.75,1), labels = c("0%","25%","50%","75%","100%"),limits = c(0, 1)) +
+    scale_y_continuous(breaks=c(0,.25,.5,.75,1), 
+                       labels = c("0%","25%","50%","75%","100%"),
+                       limits = c(0, 1)) +
     ylab("Percent Probabilistic Choices \nEqual-EV Trials") +
     geom_hline(yintercept=0.5, linetype="dashed") +
-    theme(text=element_text(family="sans",size=16))
-
-
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
 ```
 
-## Risk taking by age regressions - unequal ev
+
+
+### Unequal expected value risk trials
+#### Risk taking by age regressions
 ```{r lmRiskAgeuneqev}
 #linear age
 lmriskageUnEq <- lm(MeanRiskOverallUnEqEV~Age_Z, data = widedf)
@@ -427,452 +752,1384 @@ lmriskageUnEq <- lm(MeanRiskOverallUnEqEV~Age_Z, data = widedf)
 lmriskagesqUnEq <- lm(MeanRiskOverallUnEqEV~Age_Z+I(Age_Z^2), data = widedf)
 
 anova(lmriskageUnEq,lmriskagesqUnEq)
-#significantly better
+
+```
+
+Reporting quadratic because it's significantly better
+
+```{r lmRiskAgeuneqevreport}
 
 lmReport(lmriskagesqUnEq)
 
-
 lmriskByAgeUnEq <- twolines(MeanRiskOverallUnEqEV ~ Age,data=widedf)
 
-ggplot(data=widedf, aes(x=Age, y=MeanRiskOverallUnEqEV)) + geom_point() +
+```
+
+Appendix 1--figure 2
+
+```{r figa12}
+
+ggplot(data=widedf, aes(x=Age, y=MeanRiskOverallUnEqEV)) + 
+    geom_point() +
     stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
     ylab("Percent Probabilistic Choices \nUnequal-EV Trials") +
-      geom_hline(yintercept=0.5, linetype="dashed") +
-    theme(text=element_text(family="sans",size=16))
-
-
-```
-
-## Risk taking by age regressions - All
-```{r lmRiskAge}
-#linear age
-lmriskage <- lm(MeanRiskAll~Age_Z, data = widedf)
-
-#quadratic age
-lmriskagesq <- lm(MeanRiskAll~Age_Z+I(Age_Z^2), data = widedf)
-
-anova(lmriskage,lmriskagesq)
-#significantly better
-
-lmReport(lmriskagesq)
-
-
-lmriskByAge <- twolines(MeanRiskAll ~ Age,data=widedf)
-
-
-ggplot(data=widedf, aes(x=Age, y=MeanRiskAll)) + geom_point() +
-    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
-      stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
-    ylab("Percent Probabilistic Choices Overall") +
     geom_hline(yintercept=0.5, linetype="dashed") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
-
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
 ```
+
+
 
 # Models
-## Model Fit and plots
-```{r ModelFit}
+## Setup 
+```{r tdrsutilbic}
 
-#median model AIC
-median(widedf$TD_AIC)
-median(widedf$TDRS_AIC)
+#compute BICs from AICs that were in the original file
 
-#plot TD model AIC by age
-ggplot(data = widedf, aes(x = Age, y = TD_AIC)) + geom_point()
+newModParams <- merge(newModParams,numchoices, by ="SubjectNumber")
+
+
+newModParams$TD_BIC <- compBIC(AIC = newModParams$TD_AIC,
+                               nobs = newModParams$n,
+                               nparams = 2)
+
+newModParams$TDRS_BIC <- compBIC(AIC = newModParams$TDRS_AIC,
+                               nobs = newModParams$n,
+                               nparams = 3)
+
+newModParams$Util_BIC <- compBIC(AIC = newModParams$Util_AIC,
+                               nobs = newModParams$n,
+                               nparams = 3)
+
+newModParams$FourLR_BIC <- compBIC(AIC = newModParams$FourLR_AIC,
+                               nobs = newModParams$n,
+                               nparams = 5)
+
+```
+
+
+## BICs for each model
+
+TD median BIC = `r round2(median(newModParams$TD_BIC),2)`
+
+RSTD median BIC = `r round2(median(newModParams$TDRS_BIC),2)`
+
+FourLR median BIC = `r round2(median(newModParams$FourLR_BIC),2)`
+
+Utility median BIC = `r round2(median(newModParams$Util_BIC),2)`
+
+### Testing for linear or quadratic age patterns in BIC for each model (none are significant)
+#### TD 
+```{r TDage}
 
 #Age regression
-TDmodFitAge <- lm(TD_AIC~Age, data = widedf)
+TDmodFitAge <- lm(TD_BIC ~ Age, data = newModParams)
 lmReport(TDmodFitAge)
 
-TDmodFitAgeSq <- lm(TD_AIC~Age + I(Age^2), data = widedf)
+TDmodFitAgeSq <- lm(TD_BIC ~ Age + I(Age^2), data = newModParams)
 lmReport(TDmodFitAgeSq)
 #no significant age pattern
 
-#Plot TDRS model AIC by age
-ggplot(data = widedf, aes(x = Age, y = TDRS_AIC)) + geom_point()
+```
+
+
+#### RSTD 
+```{r RSTDage}
 
 #Age Regression
-TDRSmodFitAge <- lm(TDRS_AIC~Age, data = widedf)
+TDRSmodFitAge <- lm(TDRS_BIC~Age, data = newModParams)
 lmReport(TDRSmodFitAge)
 
-TDRSmodFitAgeSq <- lm(TDRS_AIC~Age + I(Age^2), data = widedf)
+TDRSmodFitAgeSq <- lm(TDRS_BIC~Age + I(Age^2), data = newModParams)
 lmReport(TDRSmodFitAgeSq)
 #no significant age pattern
 
-#make a boxplot showing the relationship between AIC for the two models
-ggpaired(widedf,"TD_AIC","TDRS_AIC",line.color = "#7B1979", line.size = 0.4,ggtheme=theme_bw()) +
-    ylab("Model Fit (AIC)") + 
-    xlab("Model") +
-    scale_x_discrete(labels = c('TD','RSTD')) +
-    theme(text=element_text(family="sans",size=16),legend.position="none",panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
-#how many people ar better fit by each model?
-widedf$TDRS_Better <- factor(ifelse(widedf$TDRS_AIC<widedf$TD_AIC, 1, 0))
-#TDRS Better
-sum(as.numeric(widedf$TDRS_Better) == 2)
-#TD Better
-sum(as.numeric(widedf$TDRS_Better) == 1)
-
-#code for AI magnitude and valence
-widedf$AsymmIdxMag <- abs(widedf$TDRS_AsymmIdx)
-
-widedf$AsymmIdxVal <- factor(ifelse(widedf$TDRS_AsymmIdx>0, 1,0))
-levels(widedf$AsymmIdxVal) <- c("Positive","Negative")
-
-#plot which model is a better fit as a function of AI valence and magnitude
-ggplot(data = widedf, aes(x = TDRS_Better, y = AsymmIdxMag)) +
-  geom_jitter(aes(color = AsymmIdxVal)) +  
-  theme_bw() +
-  scale_x_discrete(labels = c('1-learning-rate\nmodel fits better','2-learning-rate\nmodel fits better')) +
-  scale_color_manual(values = c("#7B1979","#797979")) +
-  theme(text=element_text(family="sans"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
-  labs(x = "Model", y= "Asymmetry Index\nMagnitude", 
-       color = "Asymmetry Index\nValence")
+```
 
 
-widedf$TDRS_TD_AIC <- widedf$TDRS_AIC-widedf$TD_AIC
+#### FourLR 
+```{r FourLRage}
 
-library(grid)
-grob1 <- grid::grobTree(grid::textGrob("TD\nBetter", x=-.15,  y=.94, just = "centre",
-  gp=grid::gpar(col="red", fontsize=13, fontface="italic")))
-grob2 <- grid::grobTree(grid::textGrob("RSTD\nBetter", x=-.15,  y=.04, just = "centre",
-  gp=grid::gpar(col="red", fontsize=13, fontface="italic")))
- 
+#Age Regression
+FourLRmodFitAge <- lm(FourLR_BIC~Age, data = newModParams)
+lmReport(TDRSmodFitAge)
+
+FourLRmodFitAgeSq <- lm(FourLR_BIC~Age + I(Age^2), data = newModParams)
+lmReport(FourLRmodFitAgeSq)
+#no significant age pattern
+
+```
+
+
+#### Utility
+```{r ModelFitBIC}
+
+#Age Regression
+UtilmodFitAge <- lm(Util_BIC~Age, data = newModParams)
+lmReport(TDRSmodFitAge)
+
+UtilmodFitAgeSq <- lm(Util_BIC~Age + I(Age^2), data = newModParams)
+lmReport(UtilmodFitAgeSq)
+#no significant age pattern
+
+```
+
+
+## BIC Comparing all 4 models
+```{r BICcompallmods}
+
+paramBPDF <- newModParams[,c("SubjectNumber",
+                             "TD_BIC", "TDRS_BIC",
+                             "Util_BIC","FourLR_BIC")]
+
+paramBPDF_long <- pivot_longer(paramBPDF,cols = TD_BIC:FourLR_BIC, 
+                               names_to="Model", values_to = "BIC")
+
+paramBPDF_long$Model <- factor(paramBPDF_long$Model , 
+                               levels=c("TD_BIC", "TDRS_BIC", "Util_BIC", "FourLR_BIC"), 
+                               labels = c("TD","RSTD","Utility","FourLR"))
+
+
+```
+
+
+Appendix 1--figure 5
+
+```{r}
+ggplot(paramBPDF_long, aes(x = Model, y = BIC)) +
+    geom_boxplot(outlier.shape = NA) +
+    geom_line(aes(group=SubjectNumber), color = "grey", alpha = .4) +
+    geom_point(alpha = .4) +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
+```
+
+
+
+## RSTD vs. TD
+
+Appendix 1--figure 6
+
+```{r tdvstdrsBIC}
+
+#compute relative BIC for TD and RSTD
+newModParams$TDRS_TD_BIC <- newModParams$TDRS_BIC-newModParams$TD_BIC
+
+#set up plot labels
+grob1 <- grid::grobTree(grid::textGrob("TD\nBetter", 
+                                       x=-.15, y=.94, just = "centre",
+                                       gp=grid::gpar(col="red", fontsize=13, 
+                                                     fontface="italic")))
+
+grob2 <- grid::grobTree(grid::textGrob("RSTD\nBetter", 
+                                       x=-.15,  y=.04, just = "centre",
+                                       gp=grid::gpar(col="red", fontsize=13, 
+                                                     fontface="italic")))
 
 
 #plot the best fitting model as a function of AI
-plot2 <- ggplot(widedf, aes(x = TDRS_AsymmIdx, y= TDRS_TD_AIC)) +
-  theme_bw()+
+plot2 <- ggplot(newModParams, aes(x = TDRS_AsymmIdx, y= TDRS_TD_BIC)) +
+    theme_bw()+
     geom_point(alpha = .5) +
     geom_hline(yintercept=0, col = "red") +
-    labs(x = "Asymmetry Index", y = "AIC Difference between \nRSTD and TD models") +
+    labs(x = "Asymmetry Index",
+         y = "BIC Difference between \nRSTD and TD models") +
     annotation_custom(grob1) +
     annotation_custom(grob2) +
-  theme(text=element_text(family="sans"),
-        panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank())
+    theme(text=element_text(family="sans"),
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank())
 
 
 gt2 <- ggplot_gtable(ggplot2::ggplot_build(plot2))
 gt2$layout$clip[gt2$layout$name == "panel"] <- "off"
-grid.draw(gt2)
-
+grid::grid.draw(gt2)
 
 
 ```
 
+Number of participants better fit by TD: `r sum(newModParams$TDRS_TD_BIC > 0)`
 
-## TDRS parameter regressions and plots
-### Asymetry Index
+Number of participants better fit by RSTD: `r sum(newModParams$TDRS_TD_BIC < 0)`
+
+
+## RSTD vs. Utility
+```{r tdrsvsutil}
+
+newModParams <- merge(newModParams, 
+                      widedf[,c("SubjectNumber","MeanRiskOverallEqEV")], 
+                      by ="SubjectNumber")
+
+#compute RSTD vs utility relative BIC
+newModParams$TDRS_vs_Utility_BIC <-newModParams$Util_BIC - newModParams$TDRS_BIC
+
+```
+
+
+Appendix 1--figure 11A
+
+```{r figa11a}
+
+#plot rho by asymmetry index
+ggplot(newModParams,aes(x = TDRS_AsymmIdx, y = Util_Rho)) + 
+  geom_point() +
+  stat_smooth(method = lm) +
+  labs(x = "Asymmetry Index", y = "Rho") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+```
+
+
+
+Median delta BIC - subject level `r abs(round2(median(newModParams$TDRS_vs_Utility_BIC),2))`
+
+Number of participants better fit by Utility: `r sum(newModParams$TDRS_vs_Utility_BIC<0)`
+
+Number of participants better fit by RSTD: `r sum(newModParams$TDRS_vs_Utility_BIC>0)`
+
+
+
+## RSTD parameter ~ age regressions and plots
+### Asymetry Index (AI)
+
+Mean AI = `r round2(mean(newModParams$TDRS_AsymmIdx),2)`
+
+Standard Deviation of AI = `r round2(sd(newModParams$TDRS_AsymmIdx),2)`
+
 ```{r AIRegsPlots}
 
-#Asymmetry Index by age
-ggplot(data=widedf, aes(x=Age, y=TDRS_AsymmIdx)) + geom_point() +
-    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
-    scale_y_continuous(limits = c(-1, 1)) +
-    theme_bw() +
-    ylab("Asymmetry Index") +
-    geom_hline(yintercept=0, linetype="dashed") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
 #linear age
-lmAIAge <- lm(TDRS_AsymmIdx ~ Age_Z, data = widedf)
+lmAIAge <- lm(TDRS_AsymmIdx ~ Age_Z, data = newModParams)
 #quadratic age
-lmAIAgeSq <- lm(TDRS_AsymmIdx ~ Age_Z+I(Age_Z^2), data = widedf)
+lmAIAgeSq <- lm(TDRS_AsymmIdx ~ Age_Z+I(Age_Z^2), data = newModParams)
 
 anova(lmAIAge,lmAIAgeSq)
 #quadratic better
 
+```
+
+Reporting quadratic age effect
+
+```{r AIreport}
+
 lmReport(lmAIAgeSq)
 
 #AI by age - 2 lines approach
-lmAIByAge <- twolines(TDRS_AsymmIdx ~ Age,data=widedf)
-
-mean(widedf$TDRS_AsymmIdx)
-sd(widedf$TDRS_AsymmIdx)
-
+lmAIByAge <- twolines(TDRS_AsymmIdx ~ Age,data=newModParams)
 
 ```
+
+Figure 3
+
+```{r fig3}
+#Asymmetry Index by age
+ggplot(data=newModParams, aes(x=Age, y=TDRS_AsymmIdx)) + geom_point() +
+    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
+    scale_y_continuous(limits = c(-1, 1)) +
+    theme_bw() +
+    ylab("\nAsymmetry Index") +
+    geom_hline(yintercept=0, linetype="dashed") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+```
+
 
 ### Alpha +
 ```{r APosRegsPlots}
 
-#Alpha+ by age
-ggplot(data=widedf, aes(x=Age, y=TDRS_AlphaPos)) + geom_point() +
-    scale_y_continuous(limits = c(0, 1)) +
-    theme_bw() +
-    ylab(expression(paste(alpha,"+")))+
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black")
-
 #linear age
-lmAPosAge <- lm(TDRS_AlphaPos ~ Age_Z, data = widedf)
+lmAPosAge <- lm(TDRS_AlphaPos ~ Age_Z, data = newModParams)
 #quadratic age
-lmAPosAgeSq <- lm(TDRS_AlphaPos ~ Age_Z+I(Age_Z^2), data = widedf)
+lmAPosAgeSq <- lm(TDRS_AlphaPos ~ Age_Z+I(Age_Z^2), data = newModParams)
 
 anova(lmAPosAge,lmAPosAgeSq)
 #quadratic not better
 
-lmReport(lmAPosAge)
-
-#Alpha + by age - 2 lines approach
-lmAPosByAge <- twolines(TDRS_AlphaPos ~ Age,data=widedf)
 
 ```
+
+Reporting linear age
+
+```{r aposreport, echo=FALSE, warning = FALSE}
+lmReport(lmAPosAge)
+```
+
+
+Appendix 1--figure 10A
+
+```{r figa10a}
+#Alpha+ by age
+ggplot(data=newModParams, aes(x=Age, y=TDRS_AlphaPos)) + geom_point() +
+    scale_y_continuous(limits = c(0, 1)) +
+    theme_bw() +
+    ylab(expression(paste(alpha,"+")))+
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x,se=TRUE,color="black", linetype = 2)
+
+```
+
 
 ### Alpha -
 ```{r ANegRegsPlots}
 
-#Alpha- by age
-ggplot(data=widedf, aes(x=Age, y=TDRS_AlphaNeg)) + geom_point()  + scale_y_continuous(limits = c(0, 1)) +
-    theme_bw() + 
-    ylab(expression(paste(alpha,"-")))+
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank()) + stat_smooth(method=lm,formula = y ~ x + I(x^2),color="black")
-
 #linear age
-lmAlphanegAge <- lm(TDRS_AlphaNeg ~ Age_Z, data = widedf)
+lmAlphanegAge <- lm(TDRS_AlphaNeg ~ Age_Z, data = newModParams)
 #quadratic age
-lmAlphanegAgeSq <- lm(TDRS_AlphaNeg ~ Age_Z+I(Age_Z^2), data = widedf)
+lmAlphanegAgeSq <- lm(TDRS_AlphaNeg ~ Age_Z+I(Age_Z^2), data = newModParams)
 
 anova(lmAlphanegAge,lmAlphanegAgeSq)
+
+```
+
+Reporting quadratic age
+
+```{r reportquadage}
 
 lmReport(lmAlphanegAgeSq)
 
 #Alpha - by age - 2 lines approach
-lmAnegByAge <- twolines(TDRS_AlphaNeg ~ Age,data=widedf)
+lmAnegByAge <- twolines(TDRS_AlphaNeg ~ Age,data=newModParams)
 
 ```
+
+
+Appendix 1--figure 10B
+
+```{r}
+#Alpha- by age
+ggplot(data=newModParams, aes(x=Age, y=TDRS_AlphaNeg)) + geom_point()  + 
+    scale_y_continuous(limits = c(0, 1)) +
+    theme_bw() + 
+    ylab(expression(paste(alpha,"-")))+
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x + I(x^2),color="black")
+
+```
+
+
+
+### Beta
+```{r BetaAgePlots}
+
+#linear age
+lmBetaAge <- lm(TDRS_Beta ~ Age_Z, data = newModParams)
+#quadratic age
+lmBetaAgeSq <- lm(TDRS_Beta ~ Age_Z+I(Age_Z^2), data = newModParams)
+
+anova(lmBetaAge,lmBetaAgeSq)
+
+```
+
+Reporting linear age
+
+```{r linearage}
+lmReport(lmBetaAge)
+```
+
+Appendix 1--figure 10C
+
+```{r figa10c}
+#Beta by age
+ggplot(data=newModParams, aes(x=Age, y=TDRS_Beta)) + geom_point()  +
+    theme_bw() + 
+    ylab(expression(beta)) +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x,color="black", linetype = 2)
+
+```
+
+
+
+## Learning and agency - FourLR model
+### Setup
+```{r AIRegsPlots4LR}
+
+#compute AI for free choices 
+newModParams$FourLR_AI_Free <- (newModParams$FourLR_AlphaPos -
+                                    newModParams$FourLR_AlphaNeg)/
+    (newModParams$FourLR_AlphaPos + newModParams$FourLR_AlphaNeg)
+
+#compute AI for forced choices
+newModParams$FourLR_AI_Forced <- (newModParams$FourLR_AlphaPos2 -
+                                     newModParams$FourLR_AlphaNeg2)/
+    (newModParams$FourLR_AlphaPos2 + newModParams$FourLR_AlphaNeg2)
+
+#make a new DF with just the four learning rate model parameters
+FourLRDF <- newModParams[,c("SubjectNumber","FourLR_AlphaPos","FourLR_AlphaPos2",
+                            "FourLR_AlphaNeg","FourLR_AlphaNeg2","FourLR_Beta",
+                            "FourLR_AI_Free","FourLR_AI_Forced")] 
+
+#give columns meaningful names
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AlphaPos'] <- 'AlphaPos_Free'
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AlphaPos2'] <- 'AlphaPos_Forced'
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AlphaNeg'] <- 'AlphaNeg_Free'
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AlphaNeg2'] <- 'AlphaNeg_Forced'
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AI_Free'] <- 'AI_Free'
+names(FourLRDF)[names(FourLRDF) == 'FourLR_AI_Forced'] <- 'AI_Forced'
+
+
+```
+
+
+### Alpha+ free vs forced
+
+Tests for normality
+
+```{r aposshapiro}
+pander(shapiro.test(FourLRDF$AlphaPos_Free))
+
+pander(shapiro.test(FourLRDF$AlphaPos_Forced))
+```
+
+Not normal, need to run nonparametric test
+
+```{r aposwilcoxtest}
+pander(wilcox.test(FourLRDF$AlphaPos_Free,FourLRDF$AlphaPos_Forced, paired = TRUE))
+```
+
+Median alpha+ free: `r round2(median(FourLRDF$AlphaPos_Free),2)`
+
+Median alpha+ forced: `r round2(median(FourLRDF$AlphaPos_Forced),2)`
+
+
+Appendix 1--figure 12A
+
+```{r figa12a}
+
+FourLRDF[,c("SubjectNumber","AlphaPos_Free","AlphaPos_Forced")] %>%
+  pivot_longer(AlphaPos_Free:AlphaPos_Forced, 
+               names_to = "ChoiceType",
+               values_to= "AlphaPosVal", 
+               names_prefix = "AlphaPos_", 
+               names_transform=list( 
+                 ChoiceType = ~ readr::parse_factor(.x, levels = c("Free", "Forced")))) %>%
+  ggplot(aes(x = ChoiceType, y = AlphaPosVal)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_line(aes(group=SubjectNumber), color = "grey", alpha = .4) +
+  geom_point(alpha = .4) +
+  xlab("Choice Type") +
+  ylab(expression(paste(alpha,"+"))) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x,color="black", linetype = 2)
+
+```
+
+### Alpha- free vs forced
+
+Tests for normality
+```{r shapiroaneg}
+
+pander(shapiro.test(FourLRDF$AlphaNeg_Free))
+pander(shapiro.test(FourLRDF$AlphaNeg_Forced))
+
+```
+
+Not normal, need to run nonparametric test
+
+```{r wilcoxaneg}
+
+pander(wilcox.test(FourLRDF$AlphaNeg_Free,FourLRDF$AlphaNeg_Forced, paired = TRUE))
+
+```
+
+Median alpha- free: `r round2(median(FourLRDF$AlphaNeg_Free),2)`
+
+Median alpha- forced: `r round2(median(FourLRDF$AlphaNeg_Forced),2)`
+
+Appendix 1--figure 12B
+
+```{r figa12b}
+
+FourLRDF[,c("SubjectNumber","AlphaNeg_Free","AlphaNeg_Forced")] %>%
+  pivot_longer(AlphaNeg_Free:AlphaNeg_Forced, 
+               names_to = "ChoiceType",
+               values_to= "AlphaNegVal", 
+               names_prefix = "AlphaNeg_", 
+               names_transform=list( 
+                 ChoiceType = ~ readr::parse_factor(.x, levels = c("Free", "Forced")))) %>%
+  ggplot( aes(x = ChoiceType, y = AlphaNegVal)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_line(aes(group=SubjectNumber), color = "grey", alpha = .4) +
+  geom_point(alpha = .4) +
+  xlab("Choice Type") +
+  ylab(expression(paste(alpha,"-"))) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x,color="black", linetype = 2)
+
+```
+
+
+### AI free vs forced
+
+Tests for normality
+
+```{r shapiroAI}
+pander(shapiro.test(FourLRDF$AI_Free))
+pander(shapiro.test(FourLRDF$AI_Forced))
+```
+
+Not normal, need to run nonparametric test
+
+```{r wilcoxAI}
+pander(wilcox.test(FourLRDF$AI_Free,FourLRDF$AI_Forced, paired = TRUE))
+```
+
+Median AI free: `r round2(median(FourLRDF$AI_Free),2)`
+
+Median AI forced: `r round2(median(FourLRDF$AI_Forced),2)`
+
+
+Appendix 1--figure 12C
+
+```{r figa12c}
+
+FourLRDF[,c("SubjectNumber","AI_Free","AI_Forced")] %>%
+  pivot_longer(AI_Free:AI_Forced, 
+               names_to = "ChoiceType",
+               values_to= "AIVal", 
+               names_prefix = "AI_", 
+               names_transform=list( 
+                 ChoiceType = ~ readr::parse_factor(.x, levels = c("Free", "Forced")))) %>%
+  ggplot( aes(x = ChoiceType, y = AIVal)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_line(aes(group=SubjectNumber), color = "grey", alpha = .4) +
+  geom_point(alpha = .4) +
+  xlab("Choice Type") +
+  ylab("Asymmetry Index") +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) + 
+    stat_smooth(method=lm,formula = y ~ x,color="black", linetype = 2)
+
+
+```
+
 
 # Memory
 ## Memory Summary Stats
-```{r MemSummary}
-#Hit rate
-mean(widedf$Hit)
-sd(widedf$Hit)
 
-#False alarm rate
-mean(widedf$FA)
-sd(widedf$FA)
+Hit Rate:
 
-#dprime
-mean(widedf$dPrime)
-sd(widedf$dPrime)
+Mean = `r round2(mean(widedf$Hit),2)`
+SD = `r round2(sd(widedf$Hit),2)`
 
-```
+
+False Alarm Rate:
+
+Mean = `r round2(mean(widedf$FA),2)`
+SD = `r round2(sd(widedf$FA),2)`
+
+
+d':
+
+Mean = `r round2(mean(widedf$dPrime),2)`
+SD = `r round2(sd(widedf$dPrime),2)`
 
 ## Memory after risky vs. safe
+
 ```{r RiskyVsSafeMemOuts}
 
 RiskySafeHits <- MemDF[,c("SubjectNumber","RespOld","AnyRisk")] %>% 
   group_by(SubjectNumber, AnyRisk) %>%
   summarize(Hits = mean(RespOld))
 
+#save a numeric version of anyrisk
 RiskySafeHits$AnyRiskNum <- RiskySafeHits$AnyRisk
 
-RiskySafeHits$AnyRisk <- factor(RiskySafeHits$AnyRisk, levels = c(0,1), labels = c("Safe","Risky"))
+#make anyrisk a factor
+RiskySafeHits$AnyRisk <- factor(RiskySafeHits$AnyRisk, levels = c(0,1), 
+                                labels = c("Safe","Risky"))
 
-RiskySafeHitswide <- tidyr::spread(RiskySafeHits[,c("SubjectNumber","Hits","AnyRisk")], AnyRisk, Hits)
-
-#do the distributions deviate significantly from normality? 
-pander(shapiro.test(RiskySafeHitswide$Risky))
-pander(shapiro.test(RiskySafeHitswide$Safe))
-#no, they don't (even with outliers)
-
-pander(mean(RiskySafeHitswide$Risky))
-pander(sd(RiskySafeHitswide$Risky))
-pander(mean(RiskySafeHitswide$Safe))
-pander(sd(RiskySafeHitswide$Safe))
-
-
-#paired t-test 
-RiskyVsSafeTOuts <- t.test(RiskySafeHitswide$Risky,RiskySafeHitswide$Safe,paired=TRUE)
-pander(RiskyVsSafeTOuts)
-
-effectsize::cohens_d(RiskySafeHits$Hits,RiskySafeHits$AnyRisk, paired = TRUE)
-
-
+RiskySafeHitswide <- tidyr::spread(
+    RiskySafeHits[,c("SubjectNumber","Hits","AnyRisk")], AnyRisk, Hits)
 
 ```
 
-## Memory performance summary stats by age
-```{r MemPerfAge}
-#Hits
-ggplot(widedf, aes(x = Age, y = Hit)) + stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +geom_point() +ylab("Hits")
+Do the distributions for memory after risky or safe hits deviate significantly from normality? 
 
+```{r riskysafehitsnorm}
+
+pander(shapiro.test(RiskySafeHitswide$Risky))
+pander(shapiro.test(RiskySafeHitswide$Safe))
+
+```
+
+No, they don't; distributions are normal
+
+
+Hits after risky choices:
+
+Mean = `r round2(mean(RiskySafeHitswide$Risky),2)`
+SD = `r round2(sd(RiskySafeHitswide$Risky),2)`
+
+
+Hits after safe choices:
+
+Mean = `r round2(mean(RiskySafeHitswide$Safe),2)`
+SD = `r round2(sd(RiskySafeHitswide$Safe),2)`
+
+
+Did memory significantly differ after risky vs. safe choices?
+
+```{r riskysafememt}
+
+RiskyVsSafeTOuts <- t.test(RiskySafeHitswide$Risky, RiskySafeHitswide$Safe,
+                           paired=TRUE)
+pander(RiskyVsSafeTOuts)
+
+effectsize::cohens_d(RiskySafeHits$Hits, RiskySafeHits$AnyRisk, paired = TRUE)
+
+```
+
+Yes, memory was better for images presented after risky vs. safe choices
+
+
+## Memory performance by age - summary stats
+
+Hits:
+
+```{r MemPerfAge}
+
+#testing linear vs quadratic age
 lmhitsage <- lm(Hit ~ Age_Z, data = widedf)
 lmhitsagesq <- lm(Hit ~ Age_Z +I(Age_Z^2), data = widedf)
 
 anova(lmhitsage, lmhitsagesq)
 
+```
+
+
+Reporting linear age
+
+```{r hitlmreport}
 lmReport(lmhitsage)
+```
+
+
+False Alarms:
+
+```{r fassummary}
+
+#testing linear vs quadratic age
+lmFAsage <- lm(FA ~ Age_Z, data = widedf)
+lmFAsagesq <- lm(FA ~ Age_Z+I(Age_Z^2), data = widedf)
+
+anova(lmFAsage, lmFAsagesq)
+
+```
+
+Reporting linear age
+
+```{r lmfasage}
+lmReport(lmFAsage)
+```
+
+Appendix 1--figure 3A
+
+```{r figa3a}
 
 #False Alarms
-ggplot(widedf, aes(x = Age, y = FA)) + stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +geom_point() + ylab("False Alarms")
+ggplot(widedf, aes(x = Age, y = FA)) + 
+    stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +
+    geom_point() + 
+    ylab("False Alarms")+
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) 
+```
 
-lmFAsage <- lm(FA ~ Age_Z, data = widedf)
 
-lmFAsagesq <- lm(FA ~ Age_Z+I(Age_Z^2), data = widedf)
-anova(lmFAsage, lmFAsagesq)
-lmReport(lmFAsage)
+d'
 
+```{r dprimeage}
 
-#D-Prime
-ggplot(widedf, aes(x = Age, y = dPrime)) + stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +geom_point() + ylab("d'")
-
+#testing linear vs quadratic age
 lmdprimesage <- lm(dPrime ~ Age_Z, data = widedf)
-lmReport(lmdprimesage)
-    
 lmdprimesagesq <- lm(dPrime ~ Age_Z+I(Age_Z^2), data = widedf)
-lmReport(lmdprimesagesq)
+
 anova(lmdprimesage,lmdprimesagesq)
 
 ```
 
-## Memory Mixed Effects Regression - TDRS
+Reporting linear age
+
+```{r lmdprimeage}
+lmReport(lmdprimesage)
+```
+
+Appendix 1--figure 3B
+
+```{r figa3b}
+
+ggplot(widedf, aes(x = Age, y = dPrime)) + 
+    stat_smooth(method=lm,formula = y ~ x,
+                se=TRUE,color="black") +
+    geom_point() + 
+    ylab("d'")+
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank()) 
+
+```
+
+
+# Learning and Memory
+## Memory Mixed Effects Regression - RSTD
+### Setup
 ```{r LMERMemoryTDRS}
 
-#make a new df including false alarms
-MemDF2 <- merge(MemDF,widedf[,c("SubjectNumber","FA")],by.x="SubjectNumber", by.y = "SubjectNumber")
+#make a new long df including false alarms
+MemDF2 <- merge(MemDF,widedf[,c("SubjectNumber","FA")], 
+                by.x="SubjectNumber",by.y = "SubjectNumber")
 
-#also add confidence data; high-confidence responses are coded as 5 or 8; 6 or 7 are low confidence
-MemDF2$Conf <- ifelse(MemDF2$MemResp==5|MemDF2$MemResp==8,1,0)
+#positive RPE contrast
+MemDF2$PositiveRPEC <- 
+    ifelse(MemDF2$PositiveRPE == "Positive Prediction Error", 1, 
+            ifelse(MemDF2$PositiveRPE == "Negative Prediction Error", -1, NA))
 
+#forced contrast
+MemDF2$ForcedC <- ifelse(MemDF2$Forced == 1, 1, ifelse(MemDF2$Forced == 0, -1, NA))
 
-MemDF2$PositiveRPEC <- ifelse(MemDF2$PositiveRPE == "Positive Prediction Error", 1, ifelse(MemDF2$PositiveRPE == "Negative Prediction Error", -1, NA))
-
+#z-score continuous predictors
 MemDF2$AbsRPEScale <- scale(MemDF2$AbsRPE)
 MemDF2$FAScale <- scale(MemDF2$FA)
 MemDF2$AIScale <- scale(MemDF2$AsymmIdx)
 
-lmUnsignedRPE <- glmer(RespOld ~ AbsRPEScale+MemIdxScaled+Age_Z+I(Age_Z^2) +FAScale+ (1+AbsRPEScale+MemIdxScaled | SubjectNumber), family=binomial, data=MemDF2,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
-glmerReport(lmUnsignedRPE)
 
+```
 
-lmUnsignedPosRPE <- glmer(RespOld ~ AbsRPEScale*PositiveRPEC+MemIdxScaled+Age_Z+I(Age_Z^2) +FAScale+ (1+AbsRPEScale*PositiveRPEC+MemIdxScaled || SubjectNumber), family=binomial, data=MemDF2,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+### Model
 
+```{r model3way}
 
-
-#This is the model that converges
-lmAIRPEMaxConv <- glmer(RespOld ~ AIScale*AbsRPEScale*PositiveRPEC+MemIdxScaled+Age_Z+I(Age_Z^2) +FAScale+ (1+AbsRPEScale+MemIdxScaled || SubjectNumber), family=binomial, data=MemDF2,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+#This is the maximal model that converges
+lmAIRPEMaxConv <- glmer(
+    RespOld ~ AIScale * AbsRPEScale * PositiveRPEC + MemIdxScaled + 
+        Age_Z + I(Age_Z^2) + FAScale +
+        (1 + AbsRPEScale + MemIdxScaled || SubjectNumber), 
+    family=binomial, data=MemDF2,
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
 glmerReport(lmAIRPEMaxConv)
 
-#Is the model with AI significantly better than the one without?
-anova(lmUnsignedRPE,lmAIRPEMaxConv)
+```
 
-#Plot
-plotlabels <- c("Asymmetry Index (AI)", "PE Magnitude","PE Valence","Memory Trial Number","Linear Age","Quadratic Age","False Alarm Rate", "AI:PE Magnitude","AI:PE Valence","PE Magnitude:PE Valence","AI:PEMagnitude:PEValence")
-names(plotlabels) <- c("AIScale", "AbsRPEScale","PositiveRPEC","MemIdxScaled","Age_Z","I(Age_Z^2)","FAScale","AIScale:AbsRPEScale","AIScale:PositiveRPEC","AbsRPEScale:PositiveRPEC","AIScale:AbsRPEScale:PositiveRPEC")
-threewayintxplotPaper <- plot_model(lmAIRPEMaxConv, colors = "bw", show.values = TRUE, 
-                                    value.offset = .4, order.terms=c(5,6,4,7,1,2,3,8,9,10,11), 
-                                    title = "Fixed Effects",axis.labels = plotlabels, 
-                                    vline.color = "grey", axis.lim = c(.3,3))
-threewayintxplotPaper + ylab("Odds of Correct Memory Response") + 
-    theme(text=element_text(family="sans",size=12),panel.background = element_rect(fill = "white",  colour = "white"), panel.border = element_rect(colour = "black", fill=NA)) +
+### Plot
+
+
+Figure 4a
+
+```{r fig4a}
+
+#make plot labels
+plotlabels <- c("Asymmetry Index (AI)", "PE Magnitude","PE Valence",
+                "Memory Trial Number","Linear Age","Quadratic Age",
+                "False Alarm Rate", "AI:PE Magnitude","AI:PE Valence",
+                "PE Magnitude:PE Valence","AI:PEMagnitude:PEValence")
+#indicate which predictors match the plot labels
+names(plotlabels) <- c("AIScale", "AbsRPEScale","PositiveRPEC",
+                       "MemIdxScaled","Age_Z","I(Age_Z^2)",
+                       "FAScale","AIScale:AbsRPEScale",
+                       "AIScale:PositiveRPEC",
+                       "AbsRPEScale:PositiveRPEC",
+                       "AIScale:AbsRPEScale:PositiveRPEC")
+
+#plot
+fig4a <- plot_model(lmAIRPEMaxConv, colors = "bw", 
+                                    show.values = TRUE, value.offset = .4,
+                                    order.terms=c(5,6,4,7,1,2,3,8,9,10,11), 
+                                    title = "Fixed Effects",
+                                    axis.labels = plotlabels, 
+                                    vline.color = "grey", 
+                                    axis.lim = c(.3,3))
+
+fig4a + 
+    ylab("Odds of Correct Memory Response") + 
+    theme(text=element_text(family="sans",size=12),
+          axis.title=element_text(size=16),
+          panel.background = element_rect(fill = "white",  colour = "white"), 
+          panel.border = element_rect(colour = "black", fill=NA)) +
     scale_y_log10(limits = c(.5,2))
 
-#saved manually - 500x400 pixels
+```
 
 
-#The model that converges, but without scaled variables so I can plot the 3-way interaction (because this is the highest level interaction, we can use the unscaled numbers)
-#also for some reason theme elements (grid color, background color, didn't work for this plot and the one above so i had to reset all of them here)
+Figure 4b
 
-lmAIRPEMaxConvPlot <- glmer(RespOld ~ AsymmIdx*AbsRPE*PositiveRPE+MemIdxScaled+Age_Z+I(Age_Z^2) +FAScale+ (1+AbsRPE+MemIdxScaled || SubjectNumber), family=binomial, data=MemDF2,control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+```{r fig4b}
+#I reran the model that converges without scaled variables so I can plot the 3-way 
+#interaction (because this is the highest level interaction, we can use the 
+#unscaled numbers)
 
-AIRPEFig <- plot_model(lmAIRPEMaxConvPlot,
-           type = "pred", 
+lmAIRPEMaxConvPlot <- glmer(
+    RespOld ~ AsymmIdx * AbsRPE * PositiveRPE + MemIdxScaled +
+        Age_Z+I(Age_Z^2)+FAScale+ 
+        (1+AbsRPE+MemIdxScaled || SubjectNumber), 
+    family=binomial, data=MemDF2,
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+#plot
+fig4b <- plot_model(lmAIRPEMaxConvPlot,
+           type = "eff", 
            terms = c("AbsRPE [all]", "AsymmIdx [-.8,0,.8]", "PositiveRPE"),
            colors = c("#bdd7e7","#6baed6","#2171b5")) +
-    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), labels = c("40%","50%","60%","70%","80%","90%"))
-AIRPEFig <- AIRPEFig + theme_bw() + theme(
+    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), 
+                       labels = c("40%","50%","60%","70%","80%","90%"))
+
+fig4b <- fig4b + theme_bw() + 
+    theme(
         text=element_text(family="sans",size=12),
         panel.background = element_rect(fill = "white",  colour = "white"),
         panel.border = element_rect(colour = "black", fill=NA),
         panel.spacing = unit(1, "lines"),
         panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank())
+        panel.grid.minor = element_blank(),
+        strip.background = element_rect(fill="white"))
         
-AIRPEFig <- AIRPEFig + labs(title="Predicted Memory Accuracy by Choice Context",
+fig4b <- fig4b + labs(title="Predicted Memory Accuracy by Choice Context",
         x="Absolute Value of Prediction Error",
         y= "Estimated Marginal Means for \n% Correct Memory Responses",
         linetype="Asymmetry\nIndex",
         color = "Asymmetry\nIndex")
-AIRPEFig
-#ggsave('plots/fig4b.png', width = 6, height = 3)
-#saved manually - 600x400 pixels
+fig4b
+
 
 ```
 
-# DOSPERT
+
+Appendix 1--figure 13C (same as 4b but with a different title and no legend)
+
+```{r figa13c}
+
+fig_a13c <- fig4b + labs(title="Experiment 1 - All Trials",
+        x="Absolute Value of Prediction Error",
+        y= "Estimated Marginal Means for \n% Correct Memory Responses",
+        linetype="Asymmetry\nIndex",
+        color = "Asymmetry\nIndex") +
+  theme(legend.position="none")
+fig_a13c
+
+```
+
+
+## Memory Mixed Effects + Forced variable (appendix)
+### Model
+
+Including Forced as a covariate
+
+```{r model3wayforced}
+
+#including main effect of forced contrast variable
+lmAIRPE_Forcedidx <- glmer(
+    RespOld ~ AIScale * AbsRPEScale * PositiveRPEC + ForcedC + MemIdxScaled +
+        Age_Z + I(Age_Z^2) + FAScale + 
+        (1 + AbsRPEScale + MemIdxScaled + ForcedC || SubjectNumber), 
+    family = binomial, data = MemDF2,
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+glmerReport(lmAIRPE_Forcedidx)
+
+```
+
+4-way interaction with forced variable
+
+```{r forced4wayintx}
+
+#four-way interaction for plotting
+lmAIRPEMaxConvPlot_forced <- glmer(
+    RespOld ~ AsymmIdx * AbsRPE * PositiveRPE * Forced + MemIdxScaled +
+        Age_Z + I(Age_Z^2) + FAScale + 
+        (1 + AbsRPE + MemIdxScaled || SubjectNumber), 
+    family=binomial, data=MemDF2,
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+glmerReport(lmAIRPEMaxConvPlot_forced)
+
+```
+
+
+### Plot 
+
+
+Appendix 1--figure 13A
+
+```{r figa13a}
+
+figa13a <- plot_model(lmAIRPEMaxConvPlot_forced,
+           type = "pred", 
+           terms = c("AbsRPE [all]", "AsymmIdx [-.8,0,.8]", "PositiveRPE"),
+           colors = c("#bdd7e7","#6baed6","#2171b5"), 
+           condition = c(Forced = 0)) +  
+    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), 
+                       labels = c("40%","50%","60%","70%","80%","90%")) +
+    theme_bw() + 
+    theme(
+        text=element_text(family="sans",size=12),
+        panel.background = element_rect(fill = "white",  colour = "white"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.spacing = unit(1, "lines"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position="none",
+        strip.background =element_rect(fill="white")) + 
+        labs(title="Experiment 1 - Free Choices",
+            x="Absolute Value of Prediction Error",
+            y= "Estimated Marginal Means for \n% Correct Memory Responses")
+figa13a
+
+
+```
+
+
+Appendix 1--figure 13B
+
+```{r figa13b}
+
+figa13b <- plot_model(lmAIRPEMaxConvPlot_forced,
+           type = "pred", 
+           terms = c("AbsRPE [all]", "AsymmIdx [-.8,0,.8]", "PositiveRPE"),
+           colors = c("#bdd7e7","#6baed6","#2171b5"), 
+           condition = c(Forced = 1)) +  
+    scale_y_continuous(breaks=c(.4,.5,.6,.7,.8,.9), 
+                       labels = c("40%","50%","60%","70%","80%","90%")) + 
+    theme_bw() + 
+    theme(
+        text=element_text(family="sans",size=12),
+        panel.background = element_rect(fill = "white",  colour = "white"),
+        panel.border = element_rect(colour = "black", fill=NA),
+        panel.spacing = unit(1, "lines"),
+        panel.grid.major = element_blank(), 
+        panel.grid.minor = element_blank(),
+        legend.position="none",
+        strip.background =element_rect(fill="white")) + 
+        labs(title="Experiment 1 - Forced Choices",
+            x="Absolute Value of Prediction Error",
+            y= "Estimated Marginal Means for \n% Correct Memory Responses",
+            linetype="Asymmetry\nIndex",
+            color = "Asymmetry\nIndex")
+figa13b
+
+```
+
+
+## Memory Mixed Effects Regression - risky only
+```{r LMERMemoryRiskOnly}
+
+lmAIRPEMaxConv_risk <- glmer(
+    RespOld ~ AIScale * AbsRPEScale * PositiveRPEC + MemIdxScaled+
+        Age_Z + I(Age_Z^2) + FAScale + 
+        (1 + AbsRPEScale + MemIdxScaled || SubjectNumber), 
+    family = binomial, data = MemDF2,subset = (AnyRisk==1),
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+glmerReport(lmAIRPEMaxConv_risk)
+
+```
+
+## Ordinal regression - confidence in memory
+### Model
+
+```{r ordinal}
+
+#create an ordinal variable that's reverse coded so that the highest value is 
+#"definitely old". With this coding scheme higher numbers = better memory so 
+#it's consistent directionally with 1 = old response, 0 = new response in glmer
+#models above
+MemDF2$RespOrdinalflip <- ordered(
+    abs(as.numeric(MemDF2$MemResp) - 9),
+    levels = c(1,2,3,4),
+    labels = c("Definitely New",
+               "Maybe New",
+               "Maybe Old",
+               "Definitely Old"))
+
+#ordinal model
+ordmod <- clmm(
+    RespOrdinalflip ~ AIScale * AbsRPEScale * PositiveRPEC + MemIdxScaled +
+    Age_Z + I(Age_Z^2) + FAScale + 
+        (1 + AbsRPEScale + MemIdxScaled | SubjectNumber), data=MemDF2)
+
+```
+
+Appendix 1--Table 1
+
+```{r ordmodreport}
+glmerReport(ordmod)
+```
+
+
+### Plot
+
+Appendix 1--figure 4
+
+```{r ordinalplot}
+
+#run a model with unscaled variables for plotting the interaction
+ordmodplot <- clmm(RespOrdinalflip ~ AsymmIdx * AbsRPE * PositiveRPE +
+                        MemIdxScaled + Age_Z +
+                        I(Age_Z^2) + FAScale + 
+                        (1 + AbsRPE + MemIdxScaled | SubjectNumber), 
+                    data=MemDF2)
+
+fig_a4 <- emmip(ordmodplot, 
+      RespOrdinalflip ~ AbsRPE|AsymmIdx:PositiveRPE,
+      at = list(AsymmIdx =  c(-.8,0, .8),
+                AbsRPE = c(0,.25, .5, .75, 1)), 
+      mode ="prob", CIs = TRUE, style = "numeric", 
+      xlab = "Absolute value of PE",
+      ylab = "Predicted probability of response") +
+  facet_grid(AsymmIdx~PositiveRPE)+ 
+    scale_color_manual(values = c('#b3cde3','#8c96c6','#8856a7','#810f7c'), 
+                       labels = c("Definitely New",
+                       "Maybe New",
+                       "Maybe Old",
+                       "Definitely Old")) +
+    labs(color = "Response") +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background =element_rect(fill="white"))
+fig_a4
+
+```
+
+
+## Utility + memory
+```{r memutil}
+
+#make a new df including false alarms
+MemDF_Util2 <- merge(
+    MemDF_Util,widedf[,c("SubjectNumber","FA")],
+    by.x="SubjectNumber", by.y = "SubjectNumber")
+
+#contrast code valence
+MemDF_Util2$PositiveRPEC <- ifelse(
+    MemDF_Util2$PositiveRPE == "Positive Prediction Error", 1,
+    ifelse(MemDF_Util2$PositiveRPE == "Negative Prediction Error", -1, NA))
+
+#scale other DVs
+MemDF_Util2$AbsRPEScale <- scale(MemDF_Util2$AbsRPE)
+MemDF_Util2$FAScale <- scale(MemDF_Util2$FA)
+MemDF_Util2$RhoScale <- scale(MemDF_Util2$Rho_Util)
+
+#glmer model
+lmAIRPEMaxUtil <- glmer(
+    RespOld ~ RhoScale * AbsRPEScale * PositiveRPEC + 
+        MemIdxScaled + Age_Z + I(Age_Z^2) + FAScale + 
+        (1 + MemIdxScaled || SubjectNumber), 
+    family=binomial, data=MemDF_Util2,
+    control = glmerControl(optimizer = "bobyqa",optCtrl=list(maxfun=1e6)))
+
+glmerReport(lmAIRPEMaxUtil)
+
+```
+
+
+# Relationship between Utility and RSTD RPEs
+## Setup
+```{r RSTDutilRPEs}
+
+#make a dataframe with RPEs from both models
+RPEcorrdf <- merge(
+    MemDF_Util2[,c("SubjectNumber","TrialUnscaled","RPE","Rho_Util")],
+    MemDF2[,c("SubjectNumber","TrialUnscaled","RPE", "AsymmIdx")],
+    by=c("SubjectNumber", "TrialUnscaled"))
+
+#add risk taking variable so we can add that variable to the plots
+RPEcorrdf <- merge(RPEcorrdf,widedf[,c("SubjectNumber","MeanRiskOverallEqEV")],
+                   by=c("SubjectNumber"))
+
+#rename and rescale variables
+names(RPEcorrdf)[names(RPEcorrdf) == 'RPE.x'] <- 'RPE_Util_Points'
+names(RPEcorrdf)[names(RPEcorrdf) == 'RPE.y'] <- 'RPE_RSTD'
+RPEcorrdf$RPE_RSTD_Points <- RPEcorrdf$RPE_RSTD * 80
+
+RPEcorrdf$Abs_RPE_RSTD_Points <- abs(RPEcorrdf$RPE_RSTD_Points)
+RPEcorrdf$Abs_RPE_Util_Points <- abs(RPEcorrdf$RPE_Util_Points)
+RPEcorrdf$PositiveUtil <- ifelse(RPEcorrdf$RPE_Util_Points > 0, 
+                                 "Positive", "Negative")
+
+```
+
+
+
+## Plots
+
+Relationship between RSTD and utility RPEs for all participants:
+
+Appendix 1--Figure 11B
+
+```{r figa11b}
+
+RPEcorrdf %>%
+  ggplot(aes(Abs_RPE_RSTD_Points, Abs_RPE_Util_Points, 
+             color = MeanRiskOverallEqEV)) + 
+  geom_point(alpha = .5) + 
+  labs(x = "RSTD PE Magnitude", 
+       y = "Utility PE Magnitude", 
+       color = "Mean Risk Taking") +
+    scale_color_gradient2(midpoint=.5, low="darkgreen", mid="white",
+                          high="purple", space ="Lab") +
+    theme_bw() + 
+    theme(text=element_text(family="sans", size = 16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+
+```
+
+
+
+Relationship between RSTD and utility RPEs for 2 representative participants:
+
+Appendix 1--figure 11C
+
+```{r figa11c}
+
+#plot subject 1
+subnum <- 1
+
+#summary stats for this subject to add to the plot
+subStats <- RPEcorrdf %>%
+  subset(SubjectNumber==subnum) %>%
+  summarize(r = mean(Rho_Util), AI = mean(AsymmIdx), 
+            risk = mean(MeanRiskOverallEqEV))
+
+#make a label with summary stats to add to the plot
+str <- paste("Rho = ", toString(subStats$r), 
+             "\nAI = ", toString(round2(subStats$AI, 2)),
+             "\nRisks = ",toString(round2(subStats$risk,2)))
+#plot
+RPEcorrdf %>%
+  subset(SubjectNumber==subnum) %>%
+  ggplot(aes(Abs_RPE_RSTD_Points,Abs_RPE_Util_Points, color = PositiveUtil)) +
+    geom_point(alpha = .5) +
+    labs(x = "RSTD PE Magnitude", y = "Utility PE Magnitude", 
+         color = "Valence of \nUtility PE") + 
+    scale_color_manual(values = c("red","blue")) + 
+    annotate("text", x=15, y=50000,label=str) + 
+    geom_abline() +
+    theme_bw() + 
+    theme(text=element_text(family="sans", size = 16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+
+
+```
+
+
+Appendix 1--figure 11D
+
+```{r figa11d}
+
+#plot subject 2
+subnum <- 2
+
+#summary stats for this subject to add to the plot
+subStats <- RPEcorrdf %>%
+  subset(SubjectNumber==subnum) %>%
+  summarize(r = mean(Rho_Util), AI = mean(AsymmIdx), risk = mean(MeanRiskOverallEqEV))
+
+#make a label with summary stats to add to the plot
+str <- paste("Rho = ", toString(round2(subStats$r,2)), 
+             "\nAI = ", toString(round2(subStats$AI, 2)),
+             "\nRisks = ",toString(round2(subStats$risk,2)))
+
+#plot
+RPEcorrdf %>%
+  subset(SubjectNumber==subnum) %>%
+  ggplot(aes(Abs_RPE_RSTD_Points,Abs_RPE_Util_Points, color = PositiveUtil)) + 
+    geom_point(alpha = .5) +
+    labs(x = "RSTD PE Magnitude", 
+         y = "Utility PE Magnitude\n", 
+         color = "Valence of \nUtility PE") + 
+    scale_color_manual(values = c("red","blue")) + 
+    annotate("text", x=15, y=9,label=str) +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+```
+
+
+Appendix 1--figure 11E
+
+```{r figa11e}
+
+#z-score Utility PEs
+RPEcorrdf$Abs_RPE_Util_Points_Scaled <- scale(RPEcorrdf$Abs_RPE_Util_Points)
+
+# plot RPEs for utility
+RPEcorrdf[,c("SubjectNumber","Rho_Util","Abs_RPE_Util_Points_Scaled")] %>%
+  group_by(SubjectNumber) %>%
+  summarise(meanAbsScaledRPE = mean(Abs_RPE_Util_Points_Scaled),
+            sdAbsScaledRPE = sd(Abs_RPE_Util_Points_Scaled), 
+            Rho_Util = mean(Rho_Util)) %>%
+  ggplot(aes(x = reorder(SubjectNumber, Rho_Util), 
+             y = meanAbsScaledRPE )) +
+    geom_point() + 
+    geom_errorbar(aes(ymin = meanAbsScaledRPE - sdAbsScaledRPE, 
+                      ymax = meanAbsScaledRPE + sdAbsScaledRPE)) + 
+    labs(x = "Participants ordered by \nincreasing Rho", 
+         y = "z-scored mean\nPE magnitude") + scale_x_discrete(breaks=NULL) +
+    theme_bw() + 
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+```
+
+
+Appendix 1--figure 11F
+
+```{r figa11f}
+
+#z-score RSTD PEs
+RPEcorrdf$Abs_RPE_RSTD_Points_Scaled <- scale(RPEcorrdf$Abs_RPE_RSTD_Points)
+
+# plot PEs for RSTD
+
+RPEcorrdf[,c("SubjectNumber","AsymmIdx","Abs_RPE_RSTD_Points_Scaled")] %>%
+  group_by(SubjectNumber) %>%
+  summarise(meanAbsScaledRPE = mean(Abs_RPE_RSTD_Points_Scaled), 
+            sdAbsScaledRPE = sd(Abs_RPE_RSTD_Points_Scaled), 
+            AsymmIdx = mean(AsymmIdx)) %>%
+  ggplot(aes(x = reorder(SubjectNumber, AsymmIdx), y = meanAbsScaledRPE )) +
+    geom_point() + 
+    geom_errorbar(aes(ymin = meanAbsScaledRPE - sdAbsScaledRPE, 
+                      ymax = meanAbsScaledRPE + sdAbsScaledRPE)) + 
+    labs(x = "Participants ordered by \nincreasing Asymmetry Index", 
+         y = "z-scored mean\nPE magnitude") +scale_x_discrete(breaks=NULL) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+```
+
+
+# DOSPERT 
+## Model
 ```{r DOSPERT}
 
-#originally dospert was coded from 0 to 1. most papers report from 1 to 7, so rescaling accordingly
-widedf$DOSPERT_rs <- widedf$DOSPERT*7
+#originally DOSPERT was scored from 0 to 1. Most papers report from 1 to 7, 
+#so rescaling accordingly
+widedf$DOSPERT_rs <- widedf$DOSPERT * 7
 
 #linear age
 lmDOSPERT <- lm(DOSPERT_rs ~ Age_Z, data = widedf)
 #quadratic age
 lmDOSPERTAgesq <- lm(DOSPERT_rs ~ Age_Z + I(Age_Z^2), data = widedf)
-anova(lmDOSPERT,lmDOSPERTAgesq)
-#quadratic is better
-lmReport(lmDOSPERTAgesq)
 
+anova(lmDOSPERT,lmDOSPERTAgesq)
+
+```
+
+Reporting quadratic effect
+
+```{r dospertagelmreport}
+
+lmReport(lmDOSPERTAgesq)
 
 DospertAge2l <- twolines(DOSPERT_rs ~ Age, data = widedf)
 
-#plot
+```
+
+## Plot
+
+Figure 5
+
+```{r fig5}
+
 ggplot(data=widedf, aes(x=Age, y=DOSPERT_rs)) +
     stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
     geom_point() +
     theme_bw() +
     ylab("Mean DOSPERT Score") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+```
 
-#risk predicting dospert
+
+## Task and self-reported risk taking
+```{r dosperttasklm}
+
+#risk predicting DOSPERT
 lmDOSPERTRisk <- lm(DOSPERT_rs ~ MeanRiskAll, data = widedf)
 lmReport(lmDOSPERTRisk)
 
-#correlation between dospert and task risk taking
-pander(cor.test(widedf$DOSPERT_rs, widedf$MeanRiskAll))
-#95% CI of correlation
-pander(cor.test(widedf$DOSPERT_rs, widedf$MeanRiskAll)$conf.int)
-
-#plot correlation
-ggplot(data=widedf, aes(x=MeanRiskAll, y=DOSPERT_rs)) +
-    stat_smooth(method=lm,formula = y ~ x ,se=FALSE,color="grey",linetype=2) +
-    geom_point() +
-    theme_bw() +
-    xlab("Point Machine Risk Taking") +
-    ylab("Self-Reported Risk Taking") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
-
-
 ```
 
-# Posterior Predictive Check
-```{r PPC}
-ggplot(data=PPC, aes(x=Age, y=MeanRiskOverallEqEV_sim)) +
-        geom_hline(yintercept=0.5, linetype="dashed") +
-    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
-    geom_point() +
-    scale_y_continuous(limits = c(0, 1)) +
-    theme_bw() +
-    xlab("Real Participant's Age") +
-    ylab("Proportion Probabilistic Choices \n Equal-EV Trials - Simulated") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
 
+Correlation between DOSPERT score and task risk taking:
+```{r dosperttaskcorrel}
+pander(cor.test(widedf$DOSPERT_rs, widedf$MeanRiskAll))
+```
+
+
+95% CI of correlation: 
+```{r dosperttaskcorrel95CI}
+pander(cor.test(widedf$DOSPERT_rs, widedf$MeanRiskAll)$conf.int)
+```
+
+
+# Posterior Predictive Check
+## RSTD
+### Model
+```{r RSTDPPC}
+
+#Relation between PPC risk taking and the real participant's age
 PPC_Reg <- lm(MeanRiskOverallEqEV_sim ~ Age_Z + I(Age_Z^2), data = PPC)
 lmReport(PPC_Reg)
 
+#merge PPC data with task risk taking so we can run a correlation
+PPC_RealData <- merge(PPC[,c("SubjectNumber","Age", "MeanRiskOverallEqEV_sim")],
+                      widedf[,c("SubjectNumber","MeanRiskOverallEqEV")])
 
-PPC_RealData <- merge(PPC[,c("SubjectNumber","Age", "MeanRiskOverallEqEV_sim")], widedf[,c("SubjectNumber","MeanRiskOverallEqEV")])
+```
 
-#correlation between risk taking in simulated vs real data
+
+Correlation between risk taking in simulated vs real data:
+```{r RSTDPPC95correl}
 pander(cor.test(PPC_RealData$MeanRiskOverallEqEV_sim,PPC_RealData$MeanRiskOverallEqEV))
+```
 
-#95% CI of correlation
+95% CI of correlation: 
+```{r RSTDPPC95CI}
 pander(cor.test(PPC_RealData$MeanRiskOverallEqEV_sim,PPC_RealData$MeanRiskOverallEqEV)$conf.int)
+```
+
+
+### Plots
+
+
+Appendix 1--figure 9A
+
+```{r figa9a}
 
 ggplot(data=PPC_RealData, aes(x=MeanRiskOverallEqEV, y=MeanRiskOverallEqEV_sim)) +
     stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +
@@ -880,107 +2137,598 @@ ggplot(data=PPC_RealData, aes(x=MeanRiskOverallEqEV, y=MeanRiskOverallEqEV_sim))
     scale_x_continuous(limits = c(0, 1)) +
     scale_y_continuous(limits = c(0, 1)) +
     theme_bw() +
-    xlab("Proportion Equal-EV \nProbabilistic Choices - Real") +
-    ylab("Proportion Equal-EV \nProbabilistic Choices - Simulated") +
-    theme(text=element_text(family="sans",size=16),panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+    labs(x =  "Proportion Equal-EV \nProbabilistic Choices - Real",
+         y = "Proportion Probabilistic Choices \n Equal-EV Trials - Simulated",
+         title = "RSTD Model") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
 
 ```
 
-# Recovery
-## Set up
+
+Appendix 1--figure 9B
+
+```{r figa9b}
+
+ggplot(data=PPC, aes(x=Age, y=MeanRiskOverallEqEV_sim)) +
+        geom_hline(yintercept=0.5, linetype="dashed") +
+    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
+    geom_point() +
+    scale_y_continuous(limits = c(0, 1)) +
+    theme_bw() +
+    labs(x = "Real Participant's Age", 
+         y ="Proportion Probabilistic Choices \n Equal-EV Trials - Simulated",
+         title = "RSTD Model") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+
+```
+
+
+## Utility
+### Model
+```{r PPC_Util}
+
+PPC_Util_Reg <- lm(MeanRiskOverallEqEV_sim ~ Age_Z + I(Age_Z^2),
+                   data = PPC_Util)
+lmReport(PPC_Util_Reg)
+
+
+PPC_Util_RealData <- merge(PPC_Util[,c("SubjectNumber","Age",
+                                       "MeanRiskOverallEqEV_sim")],
+                           widedf[,c("SubjectNumber","MeanRiskOverallEqEV")])
+
+
+```
+
+
+Correlation between risk taking in simulated vs real data:
+```{r UtilPPC95Correl}
+pander(cor.test(PPC_Util_RealData$MeanRiskOverallEqEV_sim,
+                PPC_Util_RealData$MeanRiskOverallEqEV))
+```
+
+95% CI of correlation:
+```{r UtilPPC95CI}
+pander(cor.test(PPC_Util_RealData$MeanRiskOverallEqEV_sim, 
+                PPC_Util_RealData$MeanRiskOverallEqEV)$conf.int)
+```
+
+
+### Plots
+
+
+Appendix 1--figure 9C
+
+```{r figa9c}
+
+ggplot(data=PPC_Util_RealData, aes(x=MeanRiskOverallEqEV, y=MeanRiskOverallEqEV_sim)) +
+    stat_smooth(method=lm,formula = y ~ x ,se=TRUE,color="black") +
+    geom_point() +
+    scale_x_continuous(limits = c(0, 1)) +
+    scale_y_continuous(limits = c(0, 1)) +
+    theme_bw() +
+    labs(x = "Proportion Equal-EV \nProbabilistic Choices - Real", 
+         y = "Proportion Equal-EV \nProbabilistic Choices - Simulated",
+         title = "Utility Model") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+
+```
+
+
+Appendix 1--figure 9D
+
+```{r figa9d}
+
+ggplot(data=PPC_Util, aes(x=Age, y=MeanRiskOverallEqEV_sim)) +
+        geom_hline(yintercept=0.5, linetype="dashed") +
+    stat_smooth(method=lm,formula = y ~ x + I(x^2),se=TRUE,color="black") +
+    geom_point() +
+    scale_y_continuous(limits = c(0, 1)) +
+    theme_bw() +
+    labs(x = "Real Participant's Age",
+         y = "Proportion Probabilistic Choices \n Equal-EV Trials - Simulated",
+         title = "Utility Model") +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank())
+
+```
+
+## Comparing PPCs in TDRS/Util
+```{r PPCCompare}
+
+#Merge RSTD and Utility PPC data 
+PPC_TDRS_Merge <- PPC_RealData[,c("SubjectNumber",
+                                  "Age",
+                                  "MeanRiskOverallEqEV",
+                                  "MeanRiskOverallEqEV_sim")]
+colnames(PPC_TDRS_Merge)[4] <- "PPC_MeanRisk_TDRS"
+PPC_Util_Merge <- PPC_Util_RealData[,c("SubjectNumber","Age",
+                                       "MeanRiskOverallEqEV_sim")]
+colnames(PPC_Util_Merge)[3] <- "PPC_MeanRisk_Util"
+
+PPC_Merge <- merge(PPC_TDRS_Merge, PPC_Util_Merge, 
+                   by = c("SubjectNumber","Age"))
+
+#correlation between real and RSTD PPC risk taking
+r12 <- cor.test(PPC_Merge$MeanRiskOverallEqEV, 
+                PPC_Merge$PPC_MeanRisk_TDRS)$estimate
+
+#correlation between real and Utility PPC risk taking
+r13 <- cor.test(PPC_Merge$MeanRiskOverallEqEV, 
+                PPC_Merge$PPC_MeanRisk_Util)$estimate
+
+#correlation between RSTD PPC and Utility PPC risk taking
+r23 <- cor.test(PPC_Merge$PPC_MeanRisk_TDRS, 
+                PPC_Merge$PPC_MeanRisk_Util)$estimate
+
+#are correlations r12 and r13 significantly different from one another?
+pander(r.test(n=62, r12=r12, r13=r13, r23 = r23))
+
+```
+
+
+# Model Recovery
+## Setup
 ```{r recovSetup}
 
 #compute AI for simulated data
-TDRSRecovDF$AsymmIdx <- (TDRSRecovDF$RealAlphaPos-TDRSRecovDF$RealAlphaNeg)/(TDRSRecovDF$RealAlphaPos+TDRSRecovDF$RealAlphaNeg)
+TDRSRecovDF$AsymmIdx <- (TDRSRecovDF$RealAlphaPos-TDRSRecovDF$RealAlphaNeg)/
+    (TDRSRecovDF$RealAlphaPos+TDRSRecovDF$RealAlphaNeg)
 
-# make variables comparing TD to TDRS model fit. higher numbers mean better fit for TD model, while lower numbers mean better fit for TDRS model
+#compute BICs from AICs 
+TDRecovDF$BIC_TD <- compBIC(TDRecovDF$AIC_TD,108,2)
+TDRecovDF$BIC_TDRS <- compBIC(TDRecovDF$AIC_TDRS,108,3)
+TDRecovDF$BIC_Util <- compBIC(TDRecovDF$AIC_Util,108,3)
+TDRecovDF$BIC_FourLR <- compBIC(TDRecovDF$AIC_FourLR,108,5)
 
-#compare AIC for data generated by TDRS
-TDRecovDF$TDRSvsTD_AIC <- -TDRecovDF$AIC_TD+TDRecovDF$AIC_TDRS
+TDRSRecovDF$BIC_TD <- compBIC(TDRSRecovDF$AIC_TD,108,2)
+TDRSRecovDF$BIC_TDRS <- compBIC(TDRSRecovDF$AIC_TDRS,108,3)
+TDRSRecovDF$BIC_Util <- compBIC(TDRSRecovDF$AIC_Util,108,3)
+TDRSRecovDF$BIC_FourLR <- compBIC(TDRSRecovDF$AIC_FourLR,108,5)
 
-#compare AIC for data generated by TDRS
-TDRSRecovDF$TDRSvsTD_AIC <- -TDRSRecovDF$AIC_TD+TDRSRecovDF$AIC_TDRS
+UtilRecovDF$BIC_TD <- compBIC(UtilRecovDF$AIC_TD,108,2)
+UtilRecovDF$BIC_TDRS <- compBIC(UtilRecovDF$AIC_TDRS,108,3)
+UtilRecovDF$BIC_Util <- compBIC(UtilRecovDF$AIC_Util,108,3)
+UtilRecovDF$BIC_FourLR <- compBIC(UtilRecovDF$AIC_FourLR,108,5)
+
+FourLRRecovDF$BIC_TD <- compBIC(FourLRRecovDF$AIC_TD,108,2)
+FourLRRecovDF$BIC_TDRS <- compBIC(FourLRRecovDF$AIC_TDRS,108,3)
+FourLRRecovDF$BIC_Util <- compBIC(FourLRRecovDF$AIC_Util,108,3)
+FourLRRecovDF$BIC_FourLR <- compBIC(FourLRRecovDF$AIC_FourLR,108,5)
 
 ```
 
-## Model Recovery
+
+## RSTD vs. TD Model Recovery
+
+
+Appendix 1--figure 7
+
 ```{r modelRecov}
-#TD model - plot the proportion of sims best fit by the TD model vs. TDRS
-PropBestFitTD <- nrow(subset(TDRecovDF,TDRSvsTD_AIC>0))/nrow(TDRecovDF)
-str <- paste("proportion \nof TD subs\n best fit by \nTD model:", toString(PropBestFitTD))
 
-AICTDDiffPlot <- ggplot(TDRecovDF, aes(TDRSvsTD_AIC)) + geom_histogram() + theme_bw() + labs(x = "AIC difference (Higher = TD is Better)") + geom_vline(xintercept=0) + annotate("text", x=-100, y=5000,label=str) +theme_bw()
-AICTDDiffPlot
+#Relative BICs for RSTD vs TD
+TDRSRecovDF$TDRSvsTD_BIC <- -TDRSRecovDF$BIC_TD+TDRSRecovDF$BIC_TDRS
 
-
-#TDRS model - plot the proportion of sims best fit by the TDRS model vs. TD
-PropBestFitTDRS <- nrow(subset(TDRSRecovDF,TDRSvsTD_AIC<0))/nrow(TDRSRecovDF)
-str <- paste("proportion \nof TDRS subs\n best fit by \nTDRS model:", toString(PropBestFitTDRS))
-
-AICTDRSDiffPlot <- ggplot(TDRSRecovDF, aes(TDRSvsTD_AIC)) + geom_histogram() + theme_bw() + labs(x = "AIC difference (Lower = TDRS is Better)") + geom_vline(xintercept=0) + annotate("text", x=120, y=1700,label=str) +theme_bw()
-AICTDRSDiffPlot
-
-grob1 <- grobTree(textGrob("TD\nBetter", x=-.15,  y=.94, just = "centre",
-  gp=gpar(col="red", fontsize=13, fontface="italic")))
-grob2 <- grobTree(textGrob("RSTD\nBetter", x=-.15,  y=.04, just = "centre",
-  gp=gpar(col="red", fontsize=13, fontface="italic")))
+#set up plot labels
+grob1 <- grid::grobTree(grid::textGrob("TD\nBetter", x=-.15,  y=.94, 
+                                       just = "centre",
+  gp=grid::gpar(col="red", fontsize=13, fontface="italic")))
+grob2 <- grid::grobTree(grid::textGrob("RSTD\nBetter", x=-.15,  y=.04, 
+                                       just = "centre",
+  gp=grid::gpar(col="red", fontsize=13, fontface="italic")))
  
 #plot the best fitting model as a function of AI
-plot <- ggplot(TDRSRecovDF, aes(x = AsymmIdx, y= TDRSvsTD_AIC)) +
+plot <- ggplot(TDRSRecovDF, aes(x = AsymmIdx, y= TDRSvsTD_BIC)) +
     geom_point(alpha = .2) +
     geom_hline(yintercept=0, col = "red") +
-    labs(x = "Asymmetry Index", y = "AIC Difference between \nRSTD and TD models") +
+    labs(x = "Asymmetry Index", 
+         y = "BIC Difference between \nRSTD and TD models") +
     annotation_custom(grob1) +
     annotation_custom(grob2)
 
 
 gt <- ggplot_gtable(ggplot_build(plot))
 gt$layout$clip[gt$layout$name == "panel"] <- "off"
-grid.draw(gt)
-#ggsave('plots/figS1.png', width = 4, height = 3)
-#simulated subs with a more extreme AIs are better fit by TD, while those with less extreme AIs show less of a difference in model fitting (which makes sense)
+grid::grid.draw(gt)
 
 ```
 
-## TD Parameter Recovery
-```{r TDParamRecov}
 
-#real vs. recovered alpha
-acor <- toString(round(cor(TDRecovDF$RealAlpha,TDRecovDF$RecAlpha),2))
-acorann <- paste('r =',acor)
-ggplot(TDRecovDF, aes(RealAlpha,RecAlpha)) + geom_point() + geom_abline(intercept = 0, slope = 1,color="blue") +annotate("text", x=.25, y=.9,label=acorann) +theme_bw()
+## Model recovery table
 
-#real vs. recovered beta
-bcor <- toString(round(cor(TDRecovDF$RealBeta,TDRecovDF$RecBeta),2))
-bcorann = paste('r =',bcor)
-ggplot(TDRecovDF, aes(RealBeta,RecBeta)) + geom_point()+ geom_abline(intercept = 0, slope = 1,color="blue") +annotate("text", x=5, y=20,label=bcorann) +theme_bw()
+Table 2 
 
+```{r modrecovtab}
+
+# Comparing model fit for data generated by TD
+
+TDRecovDF$TDBetter_RSTD <- TDRecovDF$BIC_TD < TDRecovDF$BIC_TDRS
+TDRecovDF$TDBetter_FourLR <- TDRecovDF$BIC_TD < TDRecovDF$BIC_FourLR
+TDRecovDF$TDBetter_Util <- TDRecovDF$BIC_TD < TDRecovDF$BIC_Util
+
+
+TDModRec <- TDRecovDF[,c("SimSub","TDBetter_RSTD",
+                         "TDBetter_FourLR","TDBetter_Util")]
+TDModRec$GenMod <- "TD"
+
+TDModRec_long <- TDModRec %>% 
+    pivot_longer(cols = c("TDBetter_RSTD","TDBetter_FourLR","TDBetter_Util"), 
+                 names_prefix = "TDBetter_",
+                 names_to = "Comparison",
+                 values_to = "GeneratingBetter")
+
+# Comparing model fit for data generated by RSTD
+
+TDRSRecovDF$RSTDBetter_TD <- TDRSRecovDF$BIC_TDRS < TDRSRecovDF$BIC_TD
+TDRSRecovDF$RSTDBetter_FourLR <- TDRSRecovDF$BIC_TDRS < TDRSRecovDF$BIC_FourLR
+TDRSRecovDF$RSTDBetter_Util <- TDRSRecovDF$BIC_TDRS < TDRSRecovDF$BIC_Util
+
+
+TDRSModRec <- TDRSRecovDF[,c("SimSub","RSTDBetter_TD",
+                             "RSTDBetter_FourLR","RSTDBetter_Util")]
+TDRSModRec$GenMod <- "RSTD"
+
+TDRSModRec_long <- TDRSModRec %>% 
+    pivot_longer(cols = c("RSTDBetter_TD","RSTDBetter_FourLR","RSTDBetter_Util"), 
+                 names_prefix = "RSTDBetter_",
+                 names_to = "Comparison",
+                 values_to = "GeneratingBetter")
+
+#Comparing model fit for data generated by FourLR
+
+FourLRRecovDF$FourLRBetter_TD <- FourLRRecovDF$BIC_FourLR < FourLRRecovDF$BIC_TD
+FourLRRecovDF$FourLRBetter_RSTD <- FourLRRecovDF$BIC_FourLR < FourLRRecovDF$BIC_TDRS
+FourLRRecovDF$FourLRBetter_Util <- FourLRRecovDF$BIC_FourLR < FourLRRecovDF$BIC_Util
+
+
+
+FourLRModRec <- FourLRRecovDF[,c("SimSub","FourLRBetter_TD","FourLRBetter_RSTD",
+                                 "FourLRBetter_Util")]
+FourLRModRec$GenMod <- "FourLR"
+
+FourLRModRec_long <- FourLRModRec %>% 
+    pivot_longer(cols = c("FourLRBetter_TD","FourLRBetter_RSTD","FourLRBetter_Util"), 
+                 names_prefix = "FourLRBetter_",
+                 names_to = "Comparison",
+                 values_to = "GeneratingBetter")
+
+#Comparing model fit for data generated by Utility
+
+UtilRecovDF$UtilBetter_TD <- UtilRecovDF$BIC_Util < UtilRecovDF$BIC_TD
+UtilRecovDF$UtilBetter_RSTD <- UtilRecovDF$BIC_Util < UtilRecovDF$BIC_TDRS
+UtilRecovDF$UtilBetter_FourLR <- UtilRecovDF$BIC_Util < UtilRecovDF$BIC_FourLR
+
+
+
+UtilModRec <- UtilRecovDF[,c("SimSub","UtilBetter_TD",
+                             "UtilBetter_RSTD","UtilBetter_FourLR")]
+UtilModRec$GenMod <- "Util"
+
+UtilModRec_long <- UtilModRec %>% 
+    pivot_longer(cols = c("UtilBetter_TD","UtilBetter_RSTD","UtilBetter_FourLR"), 
+                 names_prefix = "UtilBetter_",
+                 names_to = "Comparison",
+                 values_to = "GeneratingBetter")
+
+
+#Merge data frames with individual model fit
+
+allModRec_long <- rbind(TDModRec_long, TDRSModRec_long,
+                        FourLRModRec_long, UtilModRec_long)
+
+#summarize recovery data
+
+modrectab <- allModRec_long %>%
+    group_by(GenMod,Comparison) %>%
+    summarize(ModRec = round2(mean(GeneratingBetter),2))
+
+# clean up long data frame
+modrectab$GenMod <- factor(modrectab$GenMod, 
+                           levels = c("TD","RSTD","FourLR","Util"))
+
+modrectab$Comparison <- factor(modrectab$Comparison, 
+                               levels = c("TD","RSTD","FourLR","Util"))
+
+# make wide data frame
+modrecmat <- modrectab %>%
+    pivot_wider(names_from = Comparison,values_from = ModRec)
+
+#put the rows in order
+modrecmat_sort <- with(modrecmat,modrecmat[order(GenMod),
+                                           c("GenMod","TD","RSTD",
+                                             "FourLR","Util")])
+
+#final table
+kable(as.data.frame(modrecmat_sort))
 
 ```
 
-## TDRS Parameter Recovery
-```{r TDRSParamRecov}
-
-#bin recovery for plotting later
-TDRSRecovDF$alphaposlevel <-  ceiling(TDRSRecovDF$RealAlphaPos/.05)*.05
-TDRSRecovDF$alphaneglevel <-  ceiling(TDRSRecovDF$RealAlphaNeg/.05)*.05
-TDRSRecovDF$betalevel <-  ceiling(TDRSRecovDF$RealBeta)
-
-#correlation between real and recovered alpha positive
-aposcor <- toString(round(cor(TDRSRecovDF$RealAlphaPos,TDRSRecovDF$RecAlphaPos),2))
-aposcorann = paste('r =',aposcor)
-ggplot(TDRSRecovDF, aes(RealAlphaPos,RecAlphaPos)) + geom_point() + annotate("text", x=.25, y=.9,label=aposcorann)+ geom_abline(intercept = 0, slope = 1,color="blue")  +theme_bw()
-#correlation between real and recovered alpha negative
-anegcor <- toString(round(cor(TDRSRecovDF$RealAlphaNeg,TDRSRecovDF$RecAlphaNeg),2))
-anegcorann = paste('r =',anegcor)
-ggplot(TDRSRecovDF, aes(RealAlphaNeg,RecAlphaNeg)) + geom_point()+ annotate("text", x=.25, y=.9,label=anegcorann)+ geom_abline(intercept = 0, slope = 1,color="blue")  +theme_bw()
-#correlation between real and recovered beta
-bcorTDRS <- toString(round(cor(TDRSRecovDF$RealBeta,TDRSRecovDF$RecBeta),2))
-bcorTDRSann <- paste('r =',bcorTDRS)
-
-ggplot(TDRSRecovDF, aes(RealBeta,RecBeta)) + geom_point() + geom_point()+annotate("text", x=5, y=20,label=bcorTDRSann) + geom_abline(intercept = 0, slope = 1,color="blue") +theme_bw()
 
 
+# Parameter recoverability
+
+Recoverability values are the correlation between the real parameter values and the recovered parameter values. Recoverability is reported in Table 1.
+
+## TD 
+
+Alpha:
+`r round2(cor(TDRecovDF$RealAlpha,TDRecovDF$RecAlpha),2)`
+
+Beta:
+`r round2(cor(TDRecovDF$RealBeta,TDRecovDF$RecBeta),2)`
+
+
+## RSTD
+
+Alpha +:
+`r round2(cor(TDRSRecovDF$RealAlphaPos,TDRSRecovDF$RecAlphaPos),2)`
+
+Alpha -:
+`r round2(cor(TDRSRecovDF$RealAlphaNeg,TDRSRecovDF$RecAlphaNeg),2)`
+
+Beta:
+`r round2(cor(TDRSRecovDF$RealBeta,TDRSRecovDF$RecBeta),2)`
+
+
+## FourLR 
+
+Alpha + Free:
+`r round2(cor(FourLRRecovDF$RealAlphaPos,FourLRRecovDF$RecAlphaPos),2)`
+
+Alpha - Free:
+`r round2(cor(FourLRRecovDF$RealAlphaNeg,FourLRRecovDF$RecAlphaNeg),2)`
+
+Alpha + Forced:
+`r round2(cor(FourLRRecovDF$RealAlphaPos2,FourLRRecovDF$RecAlphaPos2),2)`
+
+Alpha - Forced:
+`r round2(cor(FourLRRecovDF$RealAlphaNeg2,FourLRRecovDF$RecAlphaNeg2),2)`
+
+Beta:
+`r round2(cor(FourLRRecovDF$RealBeta,FourLRRecovDF$RecBeta),2)`
+
+
+## Utility
+
+Alpha:
+`r round2(cor(UtilRecovDF$RealAlpha,UtilRecovDF$RecAlpha),2)`
+
+Beta:
+`r round2(cor(UtilRecovDF$RealBeta,UtilRecovDF$RecBeta),2)`
+
+Rho:
+`r round2(cor(UtilRecovDF$RealRho,UtilRecovDF$RecRho),2)`
+
+
+
+# RSTD Binned Parameter Recovery
+## Make bins
+```{r makebins}
+
+#divide AI level into 4 even groups
+TDRSRecovDF$AILevel <- ntile(TDRSRecovDF$AsymmIdx,4)
+
+#add labels to AI level
+TDRSRecovDF$AILevel <- factor(TDRSRecovDF$AILevel, levels = c(1,2,3,4), 
+                              labels = c("Low AI","Medium-Low AI",
+                                         "Medium-High AI", "High AI"))
+#summarize Bins
+BinnedRecovAI <- TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(meanAI = mean(AsymmIdx),
+              minAI = min(AsymmIdx),maxAI = max(AsymmIdx))
+formattable(BinnedRecovAI)
+
+#n in each bin (should be even)
+TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(n=n())
 
 ```
 
+## Plot
+
+Appendix 1--figure 8A
+
+```{r figa8a}
+
+#alpha+ recoverability by AI quartile
+
+labelsaPos <- TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(correlationAPos2 = cor(RealAlphaPos,RecAlphaPos))
+labelsaPos <- data.frame(labelsaPos, stringsAsFactors = FALSE)
+apostxt <- sprintf("italic(r) == %.2f", labelsaPos$correlationAPos2)
+
+ggplot(TDRSRecovDF, aes(RealAlphaPos,RecAlphaPos)) + facet_wrap(.~AILevel) +
+  geom_point(alpha = .2)+ 
+  geom_smooth(method = "lm") +
+  labs(x = expression(paste("Real ", alpha, "+")), 
+       y = expression(paste("Recovered ", alpha, "+"))) +
+  geom_text(x = .1, y = .85, aes(label = apostxt), 
+            data = labelsaPos, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+```
+
+
+Appendix 1--figure 8B
+
+```{r figa8b}
+
+#alpha- recoverability by AI quartile
+
+labelsaNeg <- TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(correlationANeg2 = cor(RealAlphaNeg,RecAlphaNeg))
+labelsaNeg <- data.frame(labelsaNeg, stringsAsFactors = FALSE)
+anegtxt <- sprintf("italic(r) == %.2f", labelsaNeg$correlationANeg2)
+
+
+ggplot(TDRSRecovDF, aes(RealAlphaNeg,RecAlphaNeg)) + 
+  facet_wrap(.~AILevel) + 
+  geom_point(alpha = .2)+ 
+  geom_smooth(method = "lm") +
+  labs(x = expression(paste("Real ", alpha, "-")),
+       y = expression(paste("Recovered ", alpha, "-"))) +
+  geom_text(x = .1, y = .85, aes(label = anegtxt), 
+            data = labelsaNeg, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+```
+
+
+Appendix 1--figure 8C
+
+```{r figa8c}
+
+# Beta recoverability by AI quartile
+
+labelsBeta <- TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(correlationBeta = cor(RealBeta,RecBeta))
+labelsBeta <- data.frame(labelsBeta, stringsAsFactors = FALSE)
+Betatxt <- sprintf("italic(r) == %.2f", labelsBeta$correlationBeta)
+
+ggplot(TDRSRecovDF, aes(RealBeta,RecBeta)) + 
+    facet_wrap(.~AILevel) + geom_point(alpha = .2)+ 
+    geom_smooth(method = "lm") +
+    labs(x = expression(paste("Real ", beta)), 
+         y = expression(paste("Recovered ", beta))) +
+  geom_text(x = 1, y = 23, aes(label = Betatxt), 
+            data = labelsBeta, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+```
+
+
+Appendix 1--figure 8D
+
+```{r figa8d}
+
+#get BIC medians by AI level
+meds <- TDRSRecovDF %>%
+    group_by(AILevel) %>%
+    summarise(mdnBIC2 = median(BIC_TDRS))
+meds <- data.frame(meds, stringsAsFactors = FALSE)
+medians <- meds$mdnBIC2
+
+# boxplot of BIC by AI quartile
+
+TDRSRecovDF %>%
+ggplot(aes(x = AILevel, y = BIC_TDRS)) + 
+    geom_boxplot() +  
+    labs(x = "AI Quartile", y = "BIC") +
+    geom_text(data = meds, aes(x = AILevel, y = mdnBIC2, 
+                               label = round2(mdnBIC2,2)), 
+              size = 3, vjust = -1.5) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"),
+          axis.text.x = element_text(angle = 45, hjust=1))
+
+```
+
+
+Percent of real participants with AIs in lower 3 quadrants:
+`r nrow(subset(newModParams, TDRS_AsymmIdx<.2501))/nrow(newModParams)`
+
+
+# RSTD Binned parameter Recovery - subset with beta > 2 (referenced in Appendix 1)
+```{r modrecbingoodbeta}
+
+#subset to get only betas > 2
+
+TDRSRecovDF_goodBetas <- subset(TDRSRecovDF, RealBeta>2)
+
+#Alpha+ recoverability (Beta >2)
+
+labelsaPos <- TDRSRecovDF_goodBetas %>%
+    group_by(AILevel) %>%
+    summarise(correlationAPos2 = cor(RealAlphaPos,RecAlphaPos))
+labelsaPos <- data.frame(labelsaPos, stringsAsFactors = FALSE)
+apostxt <- sprintf("italic(r) == %.2f", labelsaPos$correlationAPos2)
+
+ggplot(TDRSRecovDF_goodBetas, aes(RealAlphaPos,RecAlphaPos)) + 
+    facet_wrap(.~AILevel) +
+    geom_point(alpha = .2)+ 
+    geom_smooth(method = "lm") +
+    labs(x = expression(paste("Real ", alpha, "+")), 
+         y = expression(paste("Recovered ", alpha, "+"))) +
+  geom_text(x = .1, y = .85, aes(label = apostxt), 
+            data = labelsaPos, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+
+#Alpha- recoverability (Beta >2)
+
+labelsaNeg <- TDRSRecovDF_goodBetas %>%
+    group_by(AILevel) %>%
+    summarise(correlationANeg2 = cor(RealAlphaNeg,RecAlphaNeg))
+
+labelsaNeg <- data.frame(labelsaNeg, stringsAsFactors = FALSE)
+anegtxt <- sprintf("italic(r) == %.2f", labelsaNeg$correlationANeg2)
+
+
+ggplot(TDRSRecovDF_goodBetas, aes(RealAlphaNeg,RecAlphaNeg)) + 
+  facet_wrap(.~AILevel) + 
+  geom_point(alpha = .2)+ 
+  geom_smooth(method = "lm") +
+  labs(x = expression(paste("Real ", alpha, "-")), 
+       y = expression(paste("Recovered ", alpha, "-"))) +
+  geom_text(x = .1, y = .85, aes(label = anegtxt), 
+            data = labelsaNeg, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+
+#Beta recoverability (Beta >2)
+
+labelsBeta <- TDRSRecovDF_goodBetas %>%
+    group_by(AILevel) %>%
+    summarise(correlationBeta = cor(RealBeta,RecBeta))
+
+labelsBeta <- data.frame(labelsBeta, stringsAsFactors = FALSE)
+Betatxt <- sprintf("italic(r) == %.2f", labelsBeta$correlationBeta)
+
+ggplot(TDRSRecovDF_goodBetas, aes(RealBeta,RecBeta)) + facet_wrap(.~AILevel) + 
+    geom_point(alpha = .2)+ 
+  geom_smooth(method = "lm") +
+  labs(x = expression(paste("Real ", beta)), 
+       y = expression(paste("Recovered ", beta))) +
+  geom_text(x = 3, y = 23, aes(label = Betatxt), 
+            data = labelsBeta, parse = TRUE, hjust = 0) +
+    theme_bw() +
+    theme(text=element_text(family="sans",size=16),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(),
+          strip.background = element_rect(fill="white"))
+
+
+```

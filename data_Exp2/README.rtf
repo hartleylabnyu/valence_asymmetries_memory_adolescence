@@ -5,12 +5,16 @@
 \margl1440\margr1440\vieww16600\viewh7440\viewkind0
 \pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
 
-\f0\fs24 \cf0 Note: Experiment 2 data were originally published in the following paper:\
+\f0\fs24 \cf0 Data for Experiment 2 - Rosenbaum, Grassie & Hartley, 2022\
+Compiled by Gail Rosenbaum on 1/15/2022\
+gailrosenbaum@gmail.com\
+\
+Note: Raw Experiment 2 data were originally published in the following paper:\
 Rouhani, N., Norman, K. A., & Niv, Y. (2018). Dissociable effects of surprising rewards on learning and memory. Journal of Experimental Psychology: Learning, Memory, and Cognition, 44(9), 1430\'961443. https://doi.org/10.1037/xlm0000518\
 \
+Data dictionary for all data files in this directory:\
 \
-\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
-\cf0 # learningTrials\
+# learning_allExps\
 \
 subj: subjectID\
 trialExp: trial # across two blocks (or rooms) \
@@ -30,16 +34,40 @@ lrcat: binning value for plotting \
 deck: average value of deck on screen\
 exp: experiment number \
 \
-# memoryTrials (all old items, other variables are the same as learning list)\
+\
+# memory_allExps (all old items, other variables are the same as learning list)\
 \
 trialMemory: trial during memory testing\
 hit: successful memory hit\
 trialLearnExp: trial during learning across two blocks (or rooms)\
 room: # of room \
 \
-# indDiff (individual differences) \
+\
+# indDiff_allExps (individual differences) \
 \
 FARate: false alarm rate \
 HitRate: hit rate \
 aprimescore: signal detection sensitivity score (takes false alarm rate and hit rate)\
+\
+\
+# BestFitModelParameters11272020\
+\
+subj: subjectID\
+alphapos: best-fit alpha positive value from the Explicit Predictions model\
+alphaneg:  best-fit alpha negative value from the Explicit Predictions model\
+nLP: negative log posterior at best fitting parameter values for the Explicit Predictions model\
+nloglik: negative log likelihood at best fitting parameter values for the Explicit Predictions model\
+AIC: AIC at best fitting parameter values for the Explicit Predictions model\
+\
+\
+# TrialByTrialRPEs_11272020 (all items in learning_allExps plus the following)\
+\
+scenetype: scene type, I = Indoor, O = Outdoor (created using the first letter of imageShown)\
+alphapos: best-fit alpha positive value from the Explicit Predictions model\
+alphaneg:  best-fit alpha negative value from the Explicit Predictions model\
+AsymmIdx: asymmetry index\
+modval: the value of the image based on the Explicit Predictions model using the participant\'92s best-fitting parameters\
+modelrpe: the RPE for the trial based on the Explicit Predictions model using the participant\'92s best-fitting parameters\
+AbsRPE: the absolute value of modelrpe\
+PositiveRPE: the valence of modelRPE, 0 = negative, 1 = positive\
 }
